@@ -1,3 +1,43 @@
+This is a pyQT6 application which runs GDS Factory to generate a technical demonstration of taking content, generating a GDS file and displaying it in KLayout, then generating an SVG file of it and burning it to silicon wafer using a fiber laser.
+
+Key applications used for this demo:
+
+- [GDS Factory](https://github.com/gdsfactory/gdsfactory) for generating GDS components dynamically in Python
+- [KLayout](https://www.klayout.de/build.html) to visually view the resulting GDS file
+- [KLive](https://gdsfactory.github.io/klive/) (A plugin for KLayout) to dynamically load the GDS file
+- [Meerk40t](https://github.com/meerk40t/meerk40t) for Fiber Laser control on Linux.
+
+
+There are several components needed, and here’s a basic breakdown:
+
+- GDS Factory installation, from github, not from pip3. See below
+- Klayout installation, with klive plugin installed, this needs to be running during script execution.
+- Meerk40t, this is also running from main github repo, not a binary, see below
+- Python3, pip3, typical version used in testing is 3.13.2
+- System dependencies and python dependencies, noted below
+
+Note! Make sure all dependencies are running at the same level, aka living in the same folder root, with each project a leaf:
+
+├── open-fab
+│   ├── gdsfactory
+│   ├── meerk40t
+│   └── klayout
+
+### GDS Factory:
+Make a folder open-fab, and change to it. Then install gdsfactory:
+```bash
+python3 -m venv venv/
+. ./venv/bin/activate
+pip3 install git+https://github.com/gdsfactory/gdsfactory --force-reinstall
+Pip3 install pyqt6
+```
+
+Follow the instructions below for Meerk40t, and ensure KLayout is installed with KLive.
+
+**Copy the files** from this repo from the laser_workflow folder into the `gdsfactory` folder.  
+  
+Run `startDemo.sh`  
+  
 # Setup notes for automatic laser control of the ezCad 2 board.
 
 ## Installing 
