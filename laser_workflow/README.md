@@ -18,10 +18,12 @@ There are several components needed, and here’s a basic breakdown:
 
 Note! Make sure all dependencies are running at the same level, aka living in the same folder root, with each project a leaf:
 
+```bash
 ├── open-fab
 │   ├── gdsfactory
 │   ├── meerk40t
 │   └── klayout
+```
 
 ### GDS Factory:
 Make a folder open-fab, and change to it. Then install gdsfactory:
