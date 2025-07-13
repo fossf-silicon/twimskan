@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <title>Evezor Terminal ESP32</title>
+  
+  <link rel="stylesheet" type="text/css" href="style.css" />
+  <link rel="stylesheet" type="text/css" href="fancy_elements.css" />
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark-reasonable.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/python.min.js"></script>
+  
+<!-- CodeMirror -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/codemirror.min.css"></link>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/theme/dracula.min.css"></link>
+
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/codemirror.min.js"></script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/mode/python/python.min.js"></script>
+  <style>
+    .terminal {
+      height: 150px;
+      padding: 10px;
+      background-color: #304050;
+      font: 15px monospace;
+      color: white;
+      overflow: scroll;
+      text-align: left;
+      resize: vertical;
+    }
+
+    .term_input {
+      border: 0px;
+      padding: 10px 10px;
+      outline: none;
+      border-top: 1px solid white;
+      background-color: #304050;
+      font: 15px monospace;
+      letter-spacing: 2px;
+      color: white;
+      overflow: scroll;
+      text-align: left;
+    }
+    .parameter {
+      padding: 10px; 
+      margin: 3px;
+      border: solid 1px white; 
+      border-radius: 5px;
+    }
+    input {
+      box-sizing: border-box;
+      -webkit-box-sizing: border-box;
+      -moz-box-sizing: border-box;
+      width: 100%;
+      margin-top: 3px;
+      color: white;
+      border: 1px solid #5FA3D3;
+      background-color: #304050;
+    }
+  </style>
+  <script>
+    var websocket = null;
+  </script>
+</head>
+
+<body>
+  <div id="host_type" style="display:none;">esp32</div>
+  <div id="host_location" style="display:none;">{{ ip_address }}</div>
+  <form  style="display:none;">
+    <label>Network ID: <input type="text" id="nwk_id" autocomplete="off" style="width: 25%;" value="nwk_123"/></label>
+    <label>Token: <input type="text" id="token" autocomplete="off" style="width: 25%;" value="some-key-token"/></label>
+    <label>Canvas_id: <input type="text" id="canvas_id" autocomplete="off" style="width: 25%;" value="{{ canvas_id }}"/></label>
+  </form>
+  <img src="logo.png" alt="Evezor Logo" height="100" style="float: right; vertical-align: top;" />
+  <button id="main_button" onclick="toggle_tab('main')" disabled>Main</button>
+  <button id="files_button" onclick="toggle_tab('files')">Files</button>
+  <button id="connect_button" onclick="init(event)">Connect</button>
+  <h2 id="canvas_name">canvas: none</h2>
+  <a id="canvas_link" href="https://floe.evezor.com/ide/"><button>canvas</button></a>
+  
+  <button onclick="toggle_all('collapse')" class="xsm_button green">collapse all</button>
+      <button onclick="toggle_all('expand')" class="xsm_button pink">expand all</button>
+      <button class="toggler" onclick="toggleCollapsible(this)">-</button> Show Terminal  
+      <div>
+        <div id="chat" class="terminal"></div>
+        <div id="input-chat" class="term_input" contenteditable="true"></div>
+        shift + enter for newline
+      </div>
+<br><br>
+  <!-- the main tab -->
+  <div id="main">
+    <div>
+      <button onclick="toggle_all('collapse')" class="xsm_button green">collapse all</button>
+      <button onclick="toggle_all('expand')" class="xsm_button pink">expand all</button>
+    
+    </div>
+
+    <div id="parameters" style="display:flexbox;"></div> 
+  </div>
+  <!-- files tab -->
+  <div id="files" style="display: none;">
+    <button onclick="hermes.send('listdir', 'none')">listdir</button>
+    <div id="file_buttons"></div>
+    <div><input type="text" id="filecreator_new"><button onclick="hermes.create_new_file()">Create New</button></div>
+    <h3 id="file_editor_filename">filename</h3>
+    <button onclick="update_param()">update_param</button><br>
+    <textarea style="overflow:scroll;height:fit-content; max-height:90vh; width: 90%; background-color: #304050; color: white" id="file_editor" contenteditable="true" spellcheck="false"></textarea>
+    <br>
+    <button onclick="hermes.save_file()">Save</button>
+    <button onclick="get_canvas_info('dependencies')">test</button>
+    <button onclick="update_canvas()">update_canvas</button>
+    <button onclick="hermes.send('reset_device', '')" class="xsm_button red">reset device</button>
+    <div id="random_shit"></div>
+  </div>
+  <hr>
+
+  <script type="text/javascript" src="terminal.js"></script>
+  <!-- <script type="text/javascript" src="parameters.js"></script> -->
+  <script type="text/javascript" src="parameters.js"></script>
+  <script>
+    gid('filecreator_new').value = "";
+    function toggle_tab(tab) {
+
+      if (tab == 'main') {
+        document.getElementById('main').style.display = 'block';
+        document.getElementById('files').style.display = 'none';
+        document.getElementById('main_button').disabled = true;
+        document.getElementById('files_button').disabled = false;
+      }
+      else if (tab == 'files') {
+        document.getElementById('main').style.display = 'none';
+        document.getElementById('files').style.display = 'block';
+        document.getElementById('main_button').disabled = false;
+        document.getElementById('files_button').disabled = true;
+      }
+    }
+    async function update_param() {
+      let filename = gid('file_editor_filename').innerText;
+
+      if (filename == 'config.py') {
+        let canvas_id = gid('canvas_id').value;
+        url = `../executable/${canvas_id}`;
+      }
+      else {
+        url = `../parameters/${filename}`;
+      }
+      const response = await fetch(url, {
+        method: 'GET',
+      });
+    
+    
+      if (!response.ok) {
+        console.log('some problem in send_cmd');
+      }
+    
+      const resp = await response.text();
+      console.log(resp);
+      gid('file_editor').value = resp;
+    }
+
+    async function get_canvas_info(keys) {
+      // this function will get the dependencies of the canvas and create
+      // buttons for each of them to be able to get or update
+      
+      let canvas_id = gid('canvas_id').value;
+      let url = `../get/?canvas_id=${canvas_id}&keys=${keys}`;
+      const response = await fetch(url, {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        console.log('some problem in get_canvas_info');
+      }
+    
+      const resp = await response.json();
+      deps = JSON.parse(resp['dependencies']);
+      const buttons = gid('random_shit');
+      buttons.innerHTML = "";
+      for (let key of deps) {
+        const filename = key + '.py';
+        let div = document.createElement('div')
+        let button = document.createElement('button');
+        button.innerText = filename;
+        button.classList.add('blue');
+        button.classList.add('xsm_button');
+        div.appendChild(button);
+        let update_button = document.createElement('button');
+        update_button.innerText = 'update';
+        update_button.onclick = function () {
+          
+          gid('file_editor_filename').innerText = filename;
+          gid('filecreator_new').value = filename;
+          update_param();
+        };
+        if (!hermes.files.includes(filename)){
+          update_button.innerText = 'add';
+          update_button.classList.add('red');
+          update_button.classList.add('xsm_button');
+        }
+        div.appendChild(update_button);
+
+        buttons.appendChild(div)
+
+      }
+
+    }
+    async function update_canvas() {
+      // this function will get the dependencies of the canvas and create
+      // buttons for each of them to be able to get or update
+      
+      let canvas_id = gid('canvas_id').value;
+      let url = `../executable/${canvas_id}`;
+      const response = await fetch(url, {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        console.log('some problem in update_canvas');
+      }
+    
+      const resp = await response.text();
+      console.log(resp);
+      gid('file_editor').value = resp;
+      gid('file_editor_filename').innerText = 'config.py';
+      const doit = confirm('Are you sure you want to update the canvas?');
+      doit ? hermes.save_file() : console.log('not updating');
+    }
+  </script>
+  <div style="height: 200px;"></div>
+</body>
+
+</html>
+
