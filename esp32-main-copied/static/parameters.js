@@ -4025,4 +4025,3 @@ function toggleCollapsible(button, direction) {
     content.style.display = 'block';
   }
 }
-

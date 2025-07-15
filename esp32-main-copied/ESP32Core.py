@@ -116,4 +116,3 @@ class ESP32Core(Parameter):
     def reset():
         with open('.env', 'w') as f:
             f.write(default_env)
-

@@ -49,4 +49,3 @@ def setup(iris):
   iris.add_hots({})
   iris.set_info(canvas_id, name)
 
-
