@@ -116,6 +116,10 @@ class Parameter:  # Abstract class
                 hot = list(self.hot)
                 hot.remove(param)
                 self.hot = tuple(hot)
+    
+    @property
+    def active(self):
+        return self.blob & ACTIVE
         
         
     def gui(self):

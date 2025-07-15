@@ -16,8 +16,8 @@ class GRBLScara(GRBL):
         
         #override default functions and make some new
         new_funcs = {
-            'home_x': lambda *_: self.run(self.home_theta),
-            'home_y': lambda *_: self.run(self.home_phi),
+            'home_x': lambda *_: self.run(self._home_theta),
+            'home_y': lambda *_: self.run(self._home_phi),
             'reset_x': lambda *_: self.reset('x'),
             'reset_y': lambda *_: self.reset('y'),
             'reset_z': lambda *_: self.reset('z')              
@@ -44,8 +44,6 @@ class GRBLScara(GRBL):
                 'tool_offsets': self.tool_offsets,
                 }
 
-
-    
     def set_tool_offset(self, name: str, vals: dict[str, float]):   
         print('osssss', name, vals)
         self.tool_offsets[name] = vals
@@ -81,38 +79,59 @@ class GRBLScara(GRBL):
         
         # return self.positions
     
-    def home_theta(self):
+    def _home_theta(self):
         """home theta"""
         yield {"cmd": "homing theta"}
         self.reset('x')
         yield {"cmd": "sleep", "seconds": .5}
         yield {"cmd": "homing theta1"}
         # jog grbl to this position with motors disabled
-        self.axes['x'].reset.pin.value(False)
+        self.axes['x'].reset(False)
         yield {"cmd": "move", "t": self.theta_encoder.state, "feed": 20000}
         yield {"cmd": "turning motor back on"}
-        self.axes['x'].reset.pin.value(True)
+        self.axes['x'].reset(True)
         self.send_g("F500") # reset feed to something reasonable
         yield {"cmd": "Theta Homed"}
     
-    def home_phi(self):
+    def _home_phi(self):
         yield {"cmd": "homing phi"}
         self.reset('y')
         yield {"cmd": "sleep", "seconds": .5}
         # jog grbl to this position with motors disabled
-        self.axes['y'].reset.pin.value(False)
+        self.axes['y'].reset(False)
         yield {"cmd": "move", "p": self.phi_encoder.state, "feed": 20000}
         yield {"cmd": "turning motor back on"}
-        self.axes['y'].reset.pin.value(True)
+        self.axes['y'].reset(True)
         self.send_g("F500") # reset feed to something reasonable
         yield {"cmd": "Theta Homed"}
         
+    def home(self, axis=None):
+        if not axis:
+            
+            self.send_bf('error: no axis specified', post=True)
+        elif axis not in self.axes_lookup:
+            self.send_bf(f'error: unknown axis: {axis}', post=True)
+        elif axis == 't':
+            self.run(self._home_theta())
+        elif axis == 'p':
+            self.run(self._home_phi())
+        else:
+            """Home the specified axis using GRBL's endstop routine."""
+            self.send_g('$H{}'.format(axis.upper()))
+    
+    def move(self, *, t=None,p=None,x=None,y=None,z=None,a=None,b=None,c=None,f=None):
+        order = {'cmd': 'move'}
+        axes = {axis: val for axis, val in zip('tpxyzabcf', [t,p,x,y,z,a,b,c,f]) if val is not None}
+        if not axes:
+            return
+        order.update(axes)
+        return self._move(order)
+    
     def reset(self, axis: str):
         print('resetting', axis)
         _axis = self.axes[axis].reset
-        state = _axis.state
-        _axis.pin.value(not state)
-        _axis.pin.value(state)
+        _axis(False)
+        _axis(True)
         
     def parse_status(self, msg: str) -> None:
         def status_str() -> str:
@@ -165,12 +184,12 @@ class GRBLScara(GRBL):
             # if this is called by Gene then we want to return true so we may continue running    
             return _continue
 
-    def move(self, order: dict):
+    def _move(self, order: dict):
         print(order)
         wk_off = self.work_offsets[self.work_offset]
         tl_off = self.tool_offsets[self.tool_offset]
             
-        valid_codes = ['x', 'y', 'z', 'a', 'b', 'c', 't', 'p', 'feed']
+        valid_codes = ['x', 'y', 'z', 'a', 'b', 'c', 't', 'p', 'f']
         pops = [pop for pop in order if pop not in valid_codes]
         for pop in pops:
             order.pop(pop)
