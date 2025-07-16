@@ -16,12 +16,30 @@ if 1:
 print("Connecting...")
 device = belay.Device("/dev/ttyUSB0")
 
+
+"""
+@device.task
+def grbl_gui():
+    '''
+    some object in here can't return as is
+    ValueError: malformed node or string on line 1: <ast.Call object at 0x7963428cbb90>
+    {'type': 'GRBLScara', 'theta_len': 200, 'work_offsets': OrderedDict({'machine': {'y': 0, 'x': 0, 'z': 0}, 'board_offset': {'y': 0, 'x': 0, 'z': 0}}), 'tool_offset': 'default', 'name': 'grbl', 'tool_offsets': OrderedDict({'default': {'z': 0, 'p': 0, 'l': 200}, 'camera': {'z': 10, 'p': -20, 'l': 210}}), 'work_offset': 'machine', 'axes_map': OrderedDict({'x': 't', 'y': 'p', 'z': 'z'}), 'pid': 11895, 'axes': ['x', 'y', 'z']}
+    '''
+    return str(grbl.gui())
+grbl_gui()
+assert 0
+"""
+
+
+
 if 0:
     # about 18 seconds
     device.soft_reset()
     time.sleep(20)
 
-if 1:
+# does it do this automatically actually?
+# I think the real issue was soft reset
+if 0:
     print("Interrupting...")
     device._board.serial.write(b"\x03")
     device._board.serial.flush()

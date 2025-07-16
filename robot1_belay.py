@@ -10,8 +10,10 @@ device = belay.Device("/dev/ttyUSB0")
 
 """
 import belay
+import time
 
-# Otherwise we lose machine state
+# Belay likes to reset environment
+# Disable it so we keep machine state
 if 1:
     print("Disabling soft reset")
     from belay.pyboard import Pyboard
@@ -21,21 +23,45 @@ if 1:
         orig_enter_raw_repl(self, soft_reset=False)
     Pyboard.enter_raw_repl = wrap_enter_raw_repl
 
+print("Connecting...")
 device = belay.Device("/dev/ttyUSB0")
 
-device("""
+def initialize():
+    if 0:
+        # about 18 seconds
+        device.soft_reset()
+        time.sleep(20)
+
+    print("Query")
+
+    device("""
 #from machine import Pin
 # <class 'GRBLScara'>
 grbl = iris.locals['grbl']
+#gene = iris.locals['gene']
+
+def sync_gen():
+    while grbl.gen.gen:
+        grbl.gen.next(None)
 """)
+initialize()
+
 # hack to make vscode happy
 grbl=None
 
 @device.task
+
+
+@device.task
 def robot_init():
-    grbl.home('x')
-    grbl.home('y')
+    grbl.home('p')
+    sync_gen()
+
+    grbl.home('h')
+    sync_gen()
+
     grbl.home('z')
+    sync_gen()
 
 @device.task
 def grbl_move_t(t):
@@ -84,8 +110,11 @@ def grbl_get_pos_scara():
     """
     return grbl.get_pos(kinematics="scara")
 
-def soft_reset():
+def soft_reset(sleep=True):
+    # about 18 seconds
     device.soft_reset()
+    if sleep:
+        time.sleep(20)
 
 def control_c():
     device._board.serial.write(b"\x03")
