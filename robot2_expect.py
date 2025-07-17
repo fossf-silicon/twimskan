@@ -15,7 +15,9 @@ class GrblTimeout(Exception):
     pass
 
 def format_scara_pos(pos):
-    if len(pos) == 1:
+    if len(pos) == 0:
+        return ""
+    elif len(pos) == 1:
         return "%c=%0.3f" % (list(pos.keys())[0], list(pos.values())[0])
     elif len(pos) == 2:
         assert 'p' in pos and 't' in pos
@@ -47,25 +49,29 @@ class GrblWrap:
                 pos_want = dict(kwargs)
                 if 'f' in pos_want:
                     del pos_want['f']
-                print("Check pos: " + format_scara_pos(pos_want))
+                #print("Check pos: " + format_scara_pos(pos_want))
                 pos_final = self.ra.grbl_get_pos_scara()
+                #print("pos_want", pos_want)
+                #print("pos_final", pos_final)
                 deltas = {}
                 for k, v in pos_want.items():
                     deltas[k] = pos_final[k] - pos_want[k]
-                print("  GRBL error: " + format_scara_pos(deltas))
+                #print("  GRBL error: " + format_scara_pos(deltas))
                 # This should be really tight (within 0.001)
                 # If GRBL didn't obey us something fundamental is wrong
                 assert_max_axis_error(pos_want, pos_final, tolerance=0.002)
 
-                deltas = {}
-                if "z" in pos_want:
-                    del pos_want["z"]
-                for k, v in pos_want.items():
-                    if k not in "ph":
-                        continue
-                    deltas[k] = pos_final[k + "_encoder"] - pos_want[k]
-                print("  Encoder error: " + format_scara_pos(deltas))
-                assert_max_axis_error(pos_want, pos_final)
+                # encoders are slow to update
+                if 0:
+                    deltas = {}
+                    if "z" in pos_want:
+                        del pos_want["z"]
+                    for k, v in pos_want.items():
+                        if k not in "ph":
+                            continue
+                        deltas[k] = pos_final[k + "_encoder"] - pos_want[k]
+                    print("  Encoder error: " + format_scara_pos(deltas))
+                    assert_max_axis_error(pos_want, pos_final)
         else:
             assert 0, "everything should block right now"
 
@@ -168,7 +174,7 @@ class RobotArm:
             status = self.status()
             # print("status", status)
             if status["state"] == "Idle":
-                print("wait_idle: took %u iter" % iter)
+                #print("wait_idle: took %u iter" % iter)
                 return
             dt = time.time() - tstart
             if dt >= timeout:
@@ -265,6 +271,7 @@ class RobotArm:
 
 def main():
     ra = RobotArm()
+    grbl = ra.grbl
     print("Send command")
     # print("Got", ra.command("{}"))
     print("Check nop")
@@ -278,6 +285,9 @@ def main():
     print("status", ra.status())
     print("pos cart", ra.grbl_get_pos_cartesian())
     print("pos scara", ra.grbl_get_pos_scara())
+
+    print("Verifying idle")
+    ra.wait_idle(timeout=1)
 
     try:
         if 0:
@@ -384,10 +394,13 @@ def main():
             print("Move to final position")
             grbl.move(t=-21.138, p=-128.760, f=2000)
             print("Restart homing1")
+            # Encoders take a while to settle
+            time.sleep(0.5)
             ra.home_p(block=True)
             ra.home_t(block=True)
-            if 0:
+            if 1:
                 print("Restart move + homing2")
+                time.sleep(0.5)
                 grbl.move(t=-21.138, p=-128.760, f=2000)
                 ra.home_p(block=True)
                 ra.home_t(block=True)
@@ -395,25 +408,31 @@ def main():
             print("")
             print("")
 
-        def move_torture_test():
+        def move_torture_test(f=2000):
             print("")
             print("")
             print("")
-            f=5000
             print(f"Motion torture, f={f}")
+            safely_get_to_loadlock()
+            print("")
+            print("")
+            print("")
+            print(f"Motion torture, f={f}")
+            grbl.move(z=100, f=1000)
             for i in range(30):
                 # Corner
                 grbl.move(t=-34.827, p=-48.867, f=f)
                 # Wafer station
                 grbl.move(t=-21.138, p=-128.760, f=f)
-                pos_new = ra.grbl_get_pos_scara()
-                dt = -21.138 - pos_new['t']
-                dp = -128.760 - pos_new['p']
-                print("Error % 4u t=%0.3f, p=%0.3f" % (i, dt, dp))
+                print("Error % 4u" % (i,))
+                for i in range(3):
+                    time.sleep(1.1)
+                    pos_new = ra.grbl_get_pos_scara()
+                    dt = -21.138 - pos_new['t_encoder']
+                    dp = -128.760 - pos_new['p_encoder']
+                    print("  t=%0.3f, p=%0.3f" % (dt, dp))
 
         def move_wafer_from_loadlock_to_loadport():
-            grbl = ra.grbl
-
             safely_get_to_loadlock()
             
             # prepare to enter wafer holder
@@ -443,8 +462,6 @@ def main():
             ra.set_station("loadport")
 
         def move_wafer_from_loadport_to_loadlock():
-            grbl = ra.grbl
-
             # safely_get_to_loadport()
 
             # clearance above wafer holder
@@ -474,7 +491,9 @@ def main():
             ra.set_station("loadlock")
 
         if 1:
-            move_torture_test()
+            # move_torture_test(f=2000)
+            # move_torture_test(f=5000)
+            move_torture_test(f=12000)
             print("Debug break")
             return
 
