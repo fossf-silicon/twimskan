@@ -14,10 +14,69 @@ from collections import OrderedDict
 class GrblTimeout(Exception):
     pass
 
+def format_scara_pos(pos):
+    if len(pos) == 1:
+        return "%c=%0.3f" % (list(pos.keys())[0], list(pos.values())[0])
+    elif len(pos) == 2:
+        assert 'p' in pos and 't' in pos
+        return "t=%0.3f p=%0.3f" % (pos['t'],pos['p'])
+    elif len(pos) == 3:
+        assert 'p' in pos and 't' in pos and 'z' in pos
+        return "t=%0.3f p=%0.3f z=%0.3f" % (pos['t'], pos['p'], pos['z'])
+    else:
+        assert 0, pos
+
+def assert_max_axis_error(pos_want, pos_got, tolerance=1):
+    for k in pos_want.keys():
+        delta = abs(pos_got[k] - pos_want[k])
+        assert delta < tolerance, (pos_want, pos_got)
+
+class GrblWrap:
+    def __init__(self, ra):
+        self.ra = ra
+
+    def move(self, block=True, timeout=30.0, check=True, **kwargs):
+        moves = ", ".join(["%s=%s" % (k, v) for k, v in sorted(kwargs.items())])
+        self.ra.command(f"grbl.move({moves})")
+        if block:
+            # 0.6 not enough
+            # be really conservative for now
+            time.sleep(1.1)
+            self.ra.wait_idle(timeout=timeout)
+            if check:
+                pos_want = dict(kwargs)
+                if 'f' in pos_want:
+                    del pos_want['f']
+                print("Check pos: " + format_scara_pos(pos_want))
+                pos_final = self.ra.grbl_get_pos_scara()
+                deltas = {}
+                for k, v in pos_want.items():
+                    deltas[k] = pos_final[k] - pos_want[k]
+                print("  GRBL error: " + format_scara_pos(deltas))
+                # This should be really tight (within 0.001)
+                # If GRBL didn't obey us something fundamental is wrong
+                assert_max_axis_error(pos_want, pos_final, tolerance=0.002)
+
+                deltas = {}
+                if "z" in pos_want:
+                    del pos_want["z"]
+                for k, v in pos_want.items():
+                    if k not in "ph":
+                        continue
+                    deltas[k] = pos_final[k + "_encoder"] - pos_want[k]
+                print("  Encoder error: " + format_scara_pos(deltas))
+                assert_max_axis_error(pos_want, pos_final)
+        else:
+            assert 0, "everything should block right now"
+
+
+
 class RobotArm:
     def __init__(self):
         self.serial = serial.Serial('/dev/ttyUSB0', 115200, timeout=0.01)
         self.ss = SerialSpawn(self.serial)
+        self.grbl = GrblWrap(self)
+        self.station = None
 
     def robot_init(self):
         self.home_p(block=True)
@@ -52,25 +111,30 @@ class RobotArm:
     def nop(self):
         assert self.command("{}") == {}
 
-    def home_p(self, block=True, closed_loop=False):
+    # maybe instead of open loop
+    # have a quick version for when difference should be small
+
+    def home_p(self, block=True, closed_loop=True):
         self.command("grbl.home('p')")
         if block:
             if closed_loop:
                 # HACK: command can go in before we check status :(
                 time.sleep(1.0)
-                self.wait_idle(timeout=3)
+                self.wait_idle(timeout=20)
             else:
+                assert 0, "doesn't work"
                 # FIXME: measure
                 time.sleep(0.5)
 
-    def home_t(self, block=True, closed_loop=False):
+    def home_t(self, block=True, closed_loop=True):
         self.command("grbl.home('t')")
         if block:
             if closed_loop:
                 # HACK: command can go in before we check status :(
                 time.sleep(1.0)
-                self.wait_idle(timeout=3)
+                self.wait_idle(timeout=20)
             else:
+                assert 0, "doesn't work"
                 # FIXME: measure
                 time.sleep(0.5)
 
@@ -99,14 +163,18 @@ class RobotArm:
 
     def wait_idle(self, timeout=1.0):
         tstart = time.time()
+        iter = 0
         while True:
             status = self.status()
-            print("status", status)
+            # print("status", status)
             if status["state"] == "Idle":
+                print("wait_idle: took %u iter" % iter)
                 return
             dt = time.time() - tstart
             if dt >= timeout:
                 raise GrblTimeout()
+            time.sleep(0.05)
+            iter += 1
 
 
     def status(self):
@@ -159,6 +227,20 @@ class RobotArm:
             time.sleep(1.0)
             self.wait_idle(timeout=timeout)
 
+    def move_pos(self, pos, f=None, block=True, timeout=30):
+        print("move", pos)
+        for k in pos.keys():
+            assert k in 'ptz'
+        moves = ", ".join(["%s=%s" % (k, v) for k, v in sorted(pos.items())])
+        command = f"grbl.move({moves})"
+        if f:
+            command += f", f={f})"
+        print("Command: " + command)
+        self.command(command)
+        if block:
+            time.sleep(1.0)
+            self.wait_idle(timeout=timeout)
+
     def grbl_feed_hold(self):
         self.command("grbl.feed_hold()")
 
@@ -166,38 +248,246 @@ class RobotArm:
         # best we can do right now
         self.grbl_feed_hold()
 
-ra = RobotArm()
-print("Send command")
-# print("Got", ra.command("{}"))
-print("Check nop")
-ra.nop()
-print("Check misc")
-#print("Got", ra.command("grbl.home('z')"))
-#print("Got", ra.grbl_disable_motors())
-#print("Got", ra.grbl_enable_motors())
-#print("Got", ra.gui())
+    def grbl_gene_next(self):
+        """
+        grbl.gene.next(None)
+        This can fix a wedge
+        However, once this happens generally the state is corrupted / no longer self clearing
+        """
+        self.command("grbl.gene.next(None)")
 
-print("status", ra.status())
-print("pos cart", ra.grbl_get_pos_cartesian())
-print("pos scara", ra.grbl_get_pos_scara())
+    def check_gene_corrupt(self):
+        # FIXME: when this happens reboot arm and clear if possible
+        pass
 
-if 0:
-    ra.home_z(block=False)
-    while True:
-        print(ra.status())
-        time.sleep(0.2)
+    def set_station(self, station):
+        self.station = station
 
-if 0:
-    print("Homing z")
-    ra.home_z(block=True)
+def main():
+    ra = RobotArm()
+    print("Send command")
+    # print("Got", ra.command("{}"))
+    print("Check nop")
+    ra.nop()
+    print("Check misc")
+    #print("Got", ra.command("grbl.home('z')"))
+    #print("Got", ra.grbl_disable_motors())
+    #print("Got", ra.grbl_enable_motors())
+    #print("Got", ra.gui())
 
-if 1:
+    print("status", ra.status())
+    print("pos cart", ra.grbl_get_pos_cartesian())
     print("pos scara", ra.grbl_get_pos_scara())
-    while True:
-        ra.grbl_move_z(220, f=500)
-        print("pos scara", ra.grbl_get_pos_scara())
-        ra.grbl_move_z(240, f=500)
-        print("pos scara", ra.grbl_get_pos_scara())
+
+    try:
+        if 0:
+            ra.home_z(block=False)
+            while True:
+                print(ra.status())
+                time.sleep(0.2)
+
+        if 0:
+            print("Homing z")
+            ra.home_z(block=True)
+
+        if 0:
+            print("pos scara", ra.grbl_get_pos_scara())
+            while True:
+                ra.grbl_move_z(220, f=500)
+                print("pos scara", ra.grbl_get_pos_scara())
+                ra.grbl_move_z(240, f=500)
+                print("pos scara", ra.grbl_get_pos_scara())
+
+        print("starting moves")
+        #ra.move_pos({'z':250.000}, f=100)
+        if 0:
+            ra.move_pos({'t':-31.750, 'p':-109.292}, f=100)
+            ra.move_pos({'t':-86.506, 'p':67.698}, f=100)
+            ra.move_pos({'t':10.854, 'p':133.308}, f=100)
+
+        if 0:
+            print("pos", ra.grbl_get_pos_scara())
+            # where we should be / nop
+            ra.move_pos({'t':-2.943, 'p':-90.989}, f=100)
+            print("pos", ra.grbl_get_pos_scara())
+            #ra.move_pos({'t':-29.399, 'p':-112.742}, f=100)
+
+        if 0:
+            print("pos", ra.grbl_get_pos_scara())
+            print("homing")
+            ra.home_p(block=True)
+            ra.home_t(block=True)
+            print("pos", ra.grbl_get_pos_scara())
+            print("")
+            print("")
+            print("")
+            # where we should be / nop
+            ra.move_pos({'t': -34.651, 'p': -105.644}, f=100)
+            print("")
+            print("")
+            print("")
+            print("pos2", ra.grbl_get_pos_scara())
+            print("")
+            print("")
+            print("")
+            ra.move_pos({'t': -34.827, 'p': -48.867}, f=100)
+            print("")
+            print("")
+            print("")
+            print("pos3", ra.grbl_get_pos_scara())
+            print("")
+            print("")
+            print("")
+            ra.move_pos({'t': -80.684, 'p': 140.999}, f=100)
+
+            if 0:
+                ra.move_pos({'t': -25.422, 'p': 132.253}, f=100)
+                print("")
+                print("")
+                print("")
+                print("pos4", ra.grbl_get_pos_scara())
+                print("")
+                print("")
+                print("")
+                ra.move_pos({'t': 24.434, 'p': 134.055}, f=100)
+                print("")
+                print("")
+                print("")
+                print("pos5", ra.grbl_get_pos_scara())
+
+        def safely_get_to_loadlock():
+            # 5000 lost a lot of steps
+            print("")
+            print("")
+            print("")
+            print("Checking initial arm position to move to loadlock")
+            start = ra.grbl_get_pos_scara()
+            # are we by the wafer stations?
+            if start['t'] > 0:
+                # phi folded over sharpy for tight space over there
+                assert start['p'] > 0
+                print("Starting by user load/unload port")
+                # Reverse earlier moves
+                grbl.move(z=100, f=1000)
+                grbl.move(t=24.434, p=122.498, f=2000)
+                grbl.move(t=24.434, p=134.055, f=2000)
+                grbl.move(t=-76.992, p=139.768, f=2000)
+                grbl.move(t=-86.638, p=80.420, f=2000)
+                grbl.move(t=-84.661, p=54.207, f=2000)
+                grbl.move(t=-34.827, p=-48.867, f=2000)
+            else:
+                print("Starting closer to TwimSkan load lock")
+                # corner is generally a safe move
+                grbl.move(t=-34.827, p=-48.867, f=2000)
+                print("first move complete")
+            # finally to station idle positon
+            print("Move to final position")
+            grbl.move(t=-21.138, p=-128.760, f=2000)
+            print("Restart homing1")
+            ra.home_p(block=True)
+            ra.home_t(block=True)
+            if 0:
+                print("Restart move + homing2")
+                grbl.move(t=-21.138, p=-128.760, f=2000)
+                ra.home_p(block=True)
+                ra.home_t(block=True)
+            print("")
+            print("")
+            print("")
+
+        def move_torture_test():
+            print("")
+            print("")
+            print("")
+            f=5000
+            print(f"Motion torture, f={f}")
+            for i in range(30):
+                # Corner
+                grbl.move(t=-34.827, p=-48.867, f=f)
+                # Wafer station
+                grbl.move(t=-21.138, p=-128.760, f=f)
+                pos_new = ra.grbl_get_pos_scara()
+                dt = -21.138 - pos_new['t']
+                dp = -128.760 - pos_new['p']
+                print("Error % 4u t=%0.3f, p=%0.3f" % (i, dt, dp))
+
+        def move_wafer_from_loadlock_to_loadport():
+            grbl = ra.grbl
+
+            safely_get_to_loadlock()
+            
+            # prepare to enter wafer holder
+            # ra.move_pos({'z': 250}, f=100)
+            grbl.move(z=100, f=1000)
+            grbl.move(t=-21.138, p=-128.760, f=2000)
+            grbl.move(z=25, f=1000)
+            # into wafer holder
+            grbl.move(t=-32.651, p=-112.039, f=2000)
+            # up to grab wafer
+            # 50 => not enough clearance for attachments on bottom :P
+            grbl.move(z=80, f=1000)
+
+            # start in corner
+            grbl.move(t=-34.827, p=-48.867, f=500)
+            grbl.move(t=-84.661, p=54.207, f=500)
+            grbl.move(t=-86.638, p=80.420, f=500)
+            # elbow tucked in deep
+            grbl.move(t=-76.992, p=139.768, f=500)
+
+            # now the big move
+            grbl.move(t=24.434, p=134.055, f=500)
+            # move to load port
+            grbl.move(t=24.434, p=122.498, f=500)
+            # and in
+            # fixme
+            ra.set_station("loadport")
+
+        def move_wafer_from_loadport_to_loadlock():
+            grbl = ra.grbl
+
+            # safely_get_to_loadport()
+
+            # clearance above wafer holder
+            grbl.move(z=80, f=1000)
+
+            # move to load port
+            grbl.move(t=24.434, p=122.498, f=500)
+            # near port tucked in
+            grbl.move(t=24.434, p=134.055, f=500)
 
 
-print("Done")
+            # bulk move to corner
+            grbl.move(t=-76.992, p=139.768, f=500)
+            # get to corner itself
+            grbl.move(t=-86.638, p=80.420, f=500)
+            grbl.move(t=-84.661, p=54.207, f=500)
+            grbl.move(t=-34.827, p=-48.867, f=500)
+
+            # near wafer holder
+            grbl.move(t=-21.138, p=-128.760, f=500)
+            # into wafer holder
+            grbl.move(t=-32.651, p=-112.039, f=500)
+            # Set wafer down
+            grbl.move(z=25, f=1000)
+            # out of wafer holder
+            grbl.move(t=-21.138, p=-128.760, f=2000)
+            ra.set_station("loadlock")
+
+        if 1:
+            move_torture_test()
+            print("Debug break")
+            return
+
+        move_wafer_from_loadlock_to_loadport()
+        move_wafer_from_loadport_to_loadlock()
+
+
+    except Exception as e:
+        print("WARNING: exception")
+        # ra.estop()
+        raise
+    print("Done")
+
+
+
+main()

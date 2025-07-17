@@ -1125,6 +1125,8 @@ class GRBLScara extends GuiParameter {
     <button onclick="hermes.send_json(${param.pid}, {'cmd': 'disable_motors'})" class="sm_button red">disable_motors</button>
     <button onclick="hermes.send_json(${param.pid}, {'cmd': 'enable_motors'})" class="sm_button green">enable_motors</button>
     <button onclick="hermes.send_json(${param.pid}, {'cmd': 'unlock'})" class="sm_button blue">unlock</button>
+    <button onclick="hermes.send_json(${param.pid}, {'cmd': 'feed_hold'})" class="sm_button red">feed_hold</button>
+    <button onclick="hermes.send_json(${param.pid}, {'cmd': 'resume'})" class="sm_button green">resume</button>
     <hr>
     <span style="font-size:large">Home</span>
     <button onclick="hermes.send_json(${param.pid}, {'cmd': 'home_x'})" class="sm_button blue">theta</button>

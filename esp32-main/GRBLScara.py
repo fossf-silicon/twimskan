@@ -163,8 +163,8 @@ class GRBLScara(GRBL):
     def _gline(self, order, rapid=False):
             # example: {'x': 5, 'y': None}
             
-            if 'feed' in order:
-                feed = str(order.pop('feed'))
+            if 'f' in order:
+                feed = str(order.pop('f'))
             else:
                 feed = self.rapid_feedrate if rapid else self.default_feedrate 
             
