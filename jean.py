@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """
+Evezor robot arm
+Ours is named "Jean" by the factory
+
 WARNING: StdIn on micropython side was modified to make parsing easier
 <return>reply</return>
 
