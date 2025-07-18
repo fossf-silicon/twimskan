@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk
@@ -5,6 +6,7 @@ import threading
 import subprocess
 
 IMAGE_FILES = ["fossf-silicon.png", "hackerfab.png", "open-sauce.png"]
+LASERCAT_FILE = "lasercat.jpg"
 KEYS = ["a", "s", "d"]
 
 class App:
@@ -114,6 +116,18 @@ class App:
         self.sleep_seconds = 20
         self.sleep_dialog = tk.Toplevel(self.root)
         self.sleep_dialog.title("Please wait")
+        # Show a larger lasercat image above the countdown label
+        try:
+            img = Image.open(LASERCAT_FILE)
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            large_dim = min(600, int(screen_width * 0.6), int(screen_height * 0.6))
+            img = img.resize((large_dim, large_dim), Image.LANCZOS)
+            self.lasercat_large_photo = ImageTk.PhotoImage(img)
+            lasercat_label = tk.Label(self.sleep_dialog, image=self.lasercat_large_photo)
+            lasercat_label.pack(padx=10, pady=(20, 10))
+        except Exception as e:
+            print(f"Could not load or resize lasercat.jpg for large dialog: {e}")
         self.sleep_label = tk.Label(self.sleep_dialog, text=f"INITIATING CYBER RETURN SEQUENCE: {self.sleep_seconds}", font=("Arial", 20, "bold"))
         self.sleep_label.pack(padx=30, pady=30)
         self.sleep_dialog.grab_set()
