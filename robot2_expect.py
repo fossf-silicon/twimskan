@@ -39,8 +39,9 @@ def assert_max_axis_error(pos_want, pos_got, tolerance=1):
 
 def within_max_axis_error(pos_want, pos_got, tolerance=1):
     for k in pos_want.keys():
-        printt("within_max_axis_error: check %s: want %s, got %s" % (k, pos_want[k], pos_got[k]))
-        delta = abs(pos_got[k] - pos_want[k])
+        delta = pos_got[k] - pos_want[k]
+        printt("within_max_axis_error: check %s: want %s, got %s, want delta %s < tolerance %s" % (k, pos_want[k], pos_got[k], delta, tolerance))
+        delta = abs(delta)
         if delta > tolerance:
             printt("  within_max_axis_error: axis fail")
             return False
