@@ -1,18 +1,53 @@
+#!/usr/bin/env python3
+
+"""
+state: idle
+    andon: yellow
+    transition: booth staff hits keyboard
+    reTerminal: "waiting for wafer"
+state: wafer loaded, waiting for selection
+    andon: blue
+    reTerminal: user selection dialogue
+    transition: atendee hits F key + confirmation
+state: running
+    andon: green
+    reTerminal: running splash screen
+        laser cat would be amazing
+    then back to idle
+state: fault
+    andon: red
+    reTerminal: BSOD?
+"""
 import os
 import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk
 import threading
 import subprocess
+from woodpecker import Woodpecker
+from jean import RobotArm
 
-IMAGE_FILES = ["fossf-silicon.png", "hackerfab.png", "open-sauce.png"]
-LASERCAT_FILE = "lasercat.jpg"
-KEYS = ["a", "s", "d"]
+USE_HARDWARE=0
+USE_ANDON=1
+
+# NOTE: this connects the andon here right now
+if USE_ANDON or USE_HARDWARE:
+    print("Connecting to andon")
+    from andon import Andon
+
+IMAGE_FILES = ["images/fossf-silicon.png", "images/hackerfab.png", "images/open-sauce.png"]
+LASERCAT_FILE = "images/lasercat.jpg"
+SELECTION_KEYS = ["a", "s", "d"]
+KEY_READY = " "
 
 class App:
     def __init__(self, root):
         self.root = root
         self.root.title("Image Picker")
+        self.woodpecker = None
+        self.arm = None
+        self.andon = None
+        self.init_hardware()
         self.images = []
         self.labels = []
         self.selected_index = None
@@ -25,8 +60,45 @@ class App:
         self.root.configure(cursor="none")
         self.root.bind("<Key>", self.on_key)
         self.load_images()
-        self.create_main_screen()
 
+        self.state = None
+        self.set_state_idle()
+
+    def set_state_idle(self):
+        self.state = "IDLE"
+        self.create_main_screen()
+        self.update_label('Hold please! Waiting for wafer...')
+        if self.andon:
+            self.andon.set_only_orange()
+
+    def set_state_wait_selection(self):
+        self.state = "WAIT_SELECTION"
+        self.update_label('LASER UPLINK ESTABLISHED... MAKE YOUR MOVE!')
+        if self.andon:
+            self.andon.set_only_blue()
+
+    def set_state_running(self):
+        self.state = "RUNNING"
+        self.update_label('LASER GO BRRR')
+        if self.andon:
+            self.andon.set_only_green()
+
+    def set_state_error(self):
+        self.state = "ERROR"
+        self.update_label('Oh noes! Contact booth staff :()')
+        if self.andon:
+            self.andon.set_only_red()
+            # self.andon.set_beeper(1)
+
+    def init_hardware(self):
+        if USE_HARDWARE:
+            print("Connecting to woodpecker...")
+            self.woodpecker = Woodpecker()
+            print("Connecting to arm...")
+            self.arm = RobotArm()
+        if USE_HARDWARE or USE_ANDON:
+            # already connected
+            self.andon = Andon()
 
     def load_images(self):
         # Get screen size for dynamic resizing
@@ -59,11 +131,18 @@ class App:
             self.labels.append(label)
             # Add F1, F2, F3 label under each image
             f_label = tk.Label(self.root, text=F_LABELS[idx], font=("Arial", int(screen_height*0.04), "bold"))
+            self.instr_label = tk.StringVar()
+            instr = tk.Label(self.root, textvariable=self.instr_label, font=("Arial", int(screen_height*0.04)))
+            instr.grid(row=2, column=0, columnspan=3, pady=screen_height//40)
             f_label.grid(row=1, column=idx, pady=(0, screen_height//50))
-        instr = tk.Label(self.root, text='ENGAGING IMAGE LINK... MAKE YOUR MOVE!', font=("Arial", int(screen_height*0.04)))
-        instr.grid(row=2, column=0, columnspan=3, pady=screen_height//40)
         self.selected_index = None
         self.countdown_running = False
+
+    def update_label(self, text):
+        self.instr_label.set(text)
+        # self.instr_label.set("test")
+        # print(dir(self.instr))
+        # self.instr.textvariable = "Waiting for wafer..."
 
     def on_key(self, event):
         if self.countdown_running:
@@ -75,9 +154,11 @@ class App:
             self.root.attributes('-fullscreen', False)
             self.root.destroy()
             return
-        if event.char in KEYS:
-            idx = KEYS.index(event.char)
-            self.selected_index = idx
+        if self.state == "IDLE":
+            if event.char == " ":
+                self.set_state_wait_selection()
+        elif self.state == "WAIT_SELECTION":
+            self.selected_index = SELECTION_KEYS.index(event.char)
             self.show_countdown_popup()
 
     def show_countdown_popup(self):
@@ -102,8 +183,9 @@ class App:
         pass
 
     def on_confirm_key(self, event):
-        chosen_key = KEYS[self.selected_index]
+        chosen_key = SELECTION_KEYS[self.selected_index]
         if event.char == chosen_key:
+            self.set_state_running()
             self.countdown_popup.destroy()
             self.countdown_running = False
             self.countdown_seconds = 5
@@ -143,7 +225,7 @@ class App:
 
     def close_sleep_dialog(self):
         self.sleep_dialog.destroy()
-        self.create_main_screen()
+        self.set_state_idle()
 
 
     def cancel_countdown(self):
@@ -151,7 +233,7 @@ class App:
             self.countdown_popup.destroy()
         self.countdown_running = False
         self.countdown_seconds = 5
-        self.create_main_screen()
+        self.set_state_idle()
 
     def run_command(self):
         subprocess.Popen(['echo', '"YAAAY!"'])

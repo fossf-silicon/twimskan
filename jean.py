@@ -743,12 +743,6 @@ class RobotArm:
     #    safely_get_to_loadlock(homing=True)
 
 
-class RobotCell:
-    def __init__(self):
-        self.ra = RobotArm()
-        # TODO: add grbl controller
-        # TODO: add laser
-        # TODO: add rp2040 for stack lights and such
 
 def main():
     ra = RobotArm()
@@ -889,5 +883,5 @@ def main():
     print("Done")
 
 
-
-main()
+if __name__ == '__main__':
+    main()

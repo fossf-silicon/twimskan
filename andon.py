@@ -42,6 +42,49 @@ def set_red(state):
 def set_beeper(state):
     ch5.value(state)
 
+class Andon:
+    def __init__(self):
+        pass
+    
+    def set_blue(self, state):
+        set_blue(state)
+
+    def set_only_blue(self):
+        set_orange(0)
+        set_red(0)
+        set_green(0)
+        set_blue(1)
+
+    def set_green(self, state):
+        set_green(state)
+
+    def set_only_green(self):
+        set_blue(0)
+        set_orange(0)
+        set_red(0)
+        set_green(1)
+
+    def set_orange(self, state):
+        set_orange(state)
+
+    def set_only_orange(self):
+        set_blue(0)
+        set_green(0)
+        set_red(0)
+        set_orange(1)
+
+    def set_red(self, state):
+        set_red(state)
+
+    def set_only_red(self):
+        set_blue(0)
+        set_green(0)
+        set_orange(0)
+        set_red(1)
+
+    def set_beeper(self, state):
+        set_beeper(state)
+
 def main():
     try:
         while True:
