@@ -42,19 +42,22 @@ def assert_max_axis_error(pos_want, pos_got, tolerance=1):
         delta = abs(pos_got[k] - pos_want[k])
         assert delta < tolerance, (pos_want, pos_got)
 
-def within_max_axis_error(pos_want, pos_got, tolerance=1):
+def within_max_axis_error(pos_want, pos_got, tolerance=1, verbose=True):
     for k in pos_want.keys():
         delta = pos_got[k] - pos_want[k]
-        printt("within_max_axis_error: check %s: want %s, got %s, want delta %s < tolerance %s" % (k, pos_want[k], pos_got[k], delta, tolerance))
+        verbose and printt("within_max_axis_error: check %s: want %s, got %s, want delta %s < tolerance %s" % (k, pos_want[k], pos_got[k], delta, tolerance))
         delta = abs(delta)
         if delta > tolerance:
-            printt("  within_max_axis_error: axis fail")
+            verbose and printt("  within_max_axis_error: axis fail")
             return False
-        printt("  within_max_axis_error: axis ok")
-        printt("  within_max_axis_error: ok")
+        verbose and printt("  within_max_axis_error: axis ok")
+        verbose and printt("  within_max_axis_error: ok")
     return True
 
 def pos2tpz(pos):
+    """
+    Filter out encoder, f, etc to give clean position dict
+    """
     ret = {}
 
     for k in "tpz":
@@ -178,6 +181,8 @@ class RobotArm:
         self.ss = SerialSpawn(self.serial)
         self.grbl = GrblWrap(self)
         self.station = None
+        # Reduce feed rates when have wafer
+        self.has_wafer = False
 
     def robot_init(self):
         self.home_t(block=True)
@@ -379,6 +384,362 @@ class RobotArm:
         value = bool(value)
         self.command("y_reset(%s)" % (value,))
 
+
+    """
+    **********************************************************************
+    High level functions
+    Specific to our environment
+    **********************************************************************
+    """
+
+    def home_at_point(self, position):
+        ra = self
+        grbl = ra.grbl
+
+        """
+        High level notes:
+        -Home once to get roughly in position, then another once we are closer to there => more reliable
+        -Resetting stepper pulse count makes positioning more reliable
+        -Encoders and steps are not aligned. But try to always do the same position for best consistency
+        -Many sensors take a while to flush through the system
+        """
+        print("move to homing position")
+
+        def move_homing1(check):
+            grbl.move(f=2000, check=check, **position)
+            print("Restart homing1")
+            # Reset step count on driver
+            ra.t_reset(0)
+            ra.p_reset(0)
+            time.sleep(0.1)
+            ra.t_reset(1)
+            ra.p_reset(1)
+        # Encoders take a while to settle
+        # (0.5 to report position + 0.5 to transport)
+        print("Starting fine position sync")
+        move_homing1(check=False)
+        time.sleep(1.2)
+        print("Rough home p")
+        ra.home_p(block=True)
+        print("Rough home t")
+        ra.home_t(block=True)
+        if 1:
+            move_homing1(check=False)
+            # Encoders take a while to settle
+            # (0.5 to report position + 0.5 to transport)
+            time.sleep(1.2)
+            print("Fine home p")
+            ra.home_p(block=True)
+            print("Fine home t")
+            ra.home_t(block=True)
+
+    def move_from_loadlock_to_loadport(self, f=None, check=True, drop_last=False):
+        grbl = self.grbl
+        if f is None:
+            if self.wafer:
+                f = 500
+            else:
+                f = 2000
+
+        # assume we are starting at the loadlock
+        # no need to move there?
+        # do it for consistency
+        grbl.move(t=-21.138, p=-128.760, f=f, check=check)
+
+        # moves from move_wafer_from_loadlock_to_loadport()
+        # start in corner
+        grbl.move(t=-34.827, p=-48.867, f=f, check=check)
+        grbl.move(t=-84.661, p=54.207, f=f, check=check)
+        grbl.move(t=-86.638, p=80.420, f=f, check=check)
+        # elbow tucked in deep
+        grbl.move(t=-76.992, p=139.768, f=f, check=check)
+
+        # now the big move
+        grbl.move(t=24.434, p=134.055, f=f, check=check)
+        # move to actual load port
+        if not drop_last:
+            # grbl.move(t=24.434, p=122.498, f=f, check=check)
+            self.move_loadport_final_approach(f=f, check=check)
+
+
+        """
+        # start in corner
+        grbl.move(t=-34.827, p=-48.867, f=500)
+        grbl.move(t=-84.661, p=54.207, f=500)
+        grbl.move(t=-86.638, p=80.420, f=500)
+        # elbow tucked in deep
+        grbl.move(t=-76.992, p=139.768, f=500)
+
+        # now the big move
+        grbl.move(t=24.434, p=134.055, f=500)
+        # move to load port
+        grbl.move(t=24.434, p=122.498, f=500)
+        """
+
+    def move_from_loadport_to_loadlock(self, f=None, check=True, drop_last=False):
+        if f is None:
+            if self.wafer:
+                f = 500
+            else:
+                f = 2000
+
+        # reverse of above moves
+        grbl = self.grbl
+        grbl.move(t=24.434, p=122.498, f=f, check=check)
+        grbl.move(t=24.434, p=134.055, f=f, check=check)
+        grbl.move(t=-76.992, p=139.768, f=f, check=check)
+        grbl.move(t=-86.638, p=80.420, f=f, check=check)
+        grbl.move(t=-84.661, p=54.207, f=f, check=check)
+        # Corner
+        # grbl.move(t=-34.827, p=-48.867, f=f, check=check)
+        self.move_loadlock_corner(f=f, check=check)
+
+        # Actual loadlock
+        if not drop_last:
+            # grbl.move(t=-21.138, p=-128.760, f=f, check=check)
+            self.move_loadlock_final_approach(f=f, check=check)
+
+        """
+        # move to load port
+        grbl.move(t=24.434, p=122.498, f=500)
+        # near port tucked in
+        grbl.move(t=24.434, p=134.055, f=500)
+
+        # bulk move to corner
+        grbl.move(t=-76.992, p=139.768, f=500)
+        # get to corner itself
+        grbl.move(t=-86.638, p=80.420, f=500)
+        grbl.move(t=-84.661, p=54.207, f=500)
+        grbl.move(t=-34.827, p=-48.867, f=500)
+
+        # near wafer holder
+        grbl.move(t=-21.138, p=-128.760, f=500)
+        """
+
+    def move_loadport_final_approach(self, f=None, check=True):
+        """
+        Fork right in front of but not in the load port
+        """
+        self.grbl.move(t=24.434, p=122.498, f=f, check=check)
+
+    def get_loadport_final_approach_pos(self):
+        return {'t':24.434, 'p':122.498}
+
+    def move_loadlock_final_approach(self, f=None, check=True):
+        """
+        Fork right in front of but not in the load lock
+        """
+        self.grbl.move(t=-21.138, p=-128.760, f=f, check=check)
+
+    def move_loadlock_corner(self, f=None, check=True):
+        """
+        The cell corner near the load lock
+        Generally a good clearance position as not a lot of stuff there
+        """
+        self.grbl.move(t=-34.827, p=-48.867)
+
+    # def safely_get_to_loadlock(self, homing=False):
+    def safely_get_to_loadlock(self):
+        """
+        """
+        ra = self
+        grbl = ra.grbl
+        #assert not homing
+        homing = False
+
+        print("")
+        print("")
+        print("")
+        #if homing:
+        #    print("Rough position sync")
+        #    ra.home_p(block=True)
+        #    ra.home_t(block=True)
+        print("Checking initial arm position to move to loadlock")
+        start = ra.grbl_get_pos_scara()
+        # are we by the wafer stations?
+        if start['t'] > 0:
+            # phi folded over sharpy for tight space over there
+            assert start['p'] > 0
+            print("Starting by user load/unload port")
+            # Reverse earlier moves
+            grbl.move(z=100, f=1000, check=not homing)
+            # Drop last as we'll (optionally) home before moving there
+            self.move_from_loadport_to_loadlock(f=2000, check= not homing, drop_last=True)
+        else:
+            print("Starting closer to TwimSkan load lock")
+            # corner is generally a safe move
+            grbl.move(z=100, f=1000)
+            self.move_loadlock_corner(f=2000, check=not homing)
+            print("first move complete")
+        # finally to station idle positon
+        #if homing:
+        #    self.home_at_point({'t':-20, 'p':-120})
+
+        print("Move to final position")
+        self.move_loadlock_final_approach()
+        print("")
+        print("")
+        print("")
+
+    def safely_get_to_loadport(self, homing=False):
+        ra = self
+        grbl = ra.grbl
+
+        print("")
+        print("")
+        print("")
+        if homing:
+            print("Rough position sync")
+            ra.home_p(block=True)
+            ra.home_t(block=True)
+        print("Checking initial arm position to move to loadlock")
+        start = ra.grbl_get_pos_scara()
+        # are we by the wafer stations?
+        f = None
+        # FIXME: proably need more navigation logic
+        # Or maybe we just fail to home for now if its not in a very specific range?
+        if start['t'] > 0:
+            grbl.move(z=100, f=1000, check=not homing)
+            # now the big move
+            # grbl.move(t=24.434, p=134.055, f=f, check=not homing)
+            # move to load port
+            self.move_loadport_final_approach(f=f, check=not homing)
+
+            # phi folded over sharpy for tight space over there
+            assert start['p'] > 0
+            print("Starting by user load/unload port")
+        else:
+            print("Starting closer to TwimSkan load lock")
+            # corner is generally a safe move
+            grbl.move(z=100, f=1000)
+            # Drop last as we'll (optionally) home before moving there
+            self.move_from_loadlock_to_loadport(drop_last=True)
+
+        print("Rough move complete")
+        # finally to station idle positon
+        if homing:
+            self.home_at_point({'t':20, 'p':120})
+
+        print("Move to final position")
+        # move to load port
+        self.move_loadport_final_approach(f=f, check=not homing)
+        print("")
+        print("")
+        print("")
+
+    def home_at_loadport(self):
+        self.safely_get_to_loadport(homing=True)
+
+    def move_wafer_from_loadlock_to_loadport(self):
+        ra = self
+        grbl = ra.grbl
+        self.safely_get_to_loadlock()
+        
+        # prepare to enter wafer holder
+        # ra.move_pos({'z': 250}, f=100)
+        grbl.move(z=100, f=1000)
+        grbl.move(t=-21.138, p=-128.760, f=2000)
+        grbl.move(z=25, f=1000)
+        # into wafer holder
+        grbl.move(t=-32.651, p=-112.039, f=2000)
+        # up to grab wafer
+        # 50 => not enough clearance for attachments on bottom :P
+        grbl.move(z=80, f=1000)
+        self.has_wafer = True
+
+        self.move_from_loadlock_to_loadport()
+
+        # and in
+        # fixme
+        self.has_wafer = False
+        ra.set_station("loadport")
+
+    def move_wafer_from_loadport_to_loadlock(self):
+        ra = self
+        grbl = ra.grbl
+        self.safely_get_to_loadport()
+
+        # clearance above wafer holder
+        grbl.move(z=80, f=1000)
+
+        # fixme
+        self.has_wafer = True
+
+        self.move_from_loadport_to_loadlock()
+
+        # into wafer holder
+        grbl.move(t=-32.651, p=-112.039, f=500)
+        # Set wafer down
+        grbl.move(z=25, f=1000)
+        self.has_wafer = False
+        # out of wafer holder
+        grbl.move(t=-21.138, p=-128.760, f=2000)
+        ra.set_station("loadlock")
+
+    def force_user_move_to_loadport(self):
+        """
+        Rather than handle all of the differnet cases
+        Check if we are within spec
+        If so press enter and lock position once we are there
+        """
+        print("")
+        print("")
+        print("")
+        print("Verifying we are starting near the load port")
+        desired_pos = self.get_loadport_final_approach_pos()
+        print("Need arm at %s" % (format_scara_pos(desired_pos),))
+        self.grbl_enable_motors()
+        current_pos = self.grbl_get_pos_scara()
+        tolerance = 5
+        if within_max_axis_error(desired_pos, current_pos, verbose=True, tolerance=tolerance):
+            print("Position: ok")
+        else:
+            print("Position: needs adjustment. Disabling motors")
+            self.grbl_disable_motors()
+            while True:
+                # prints stuff
+                if within_max_axis_error(desired_pos, current_pos, verbose=True, tolerance=tolerance):
+                    print("In spec! Don't move it")
+                    input("Press Enter to lock")
+                    self.grbl_enable_motors()
+                    if within_max_axis_error(desired_pos, current_pos, verbose=True, tolerance=tolerance):
+                        print("Verified position locked")
+                        break
+                    else:
+                        print("Lost position :( Please re-try")
+                        self.grbl_disable_motors()
+                time.sleep(0.2)
+
+    def move_torture_test(self, f=2000):
+        ra = self
+        grbl = ra.grbl
+        print("")
+        print("")
+        print("")
+        print(f"Motion torture, f={f}")
+        ra.safely_get_to_loadlock()
+        print("")
+        print("")
+        print("")
+        print(f"Motion torture, f={f}")
+        grbl.move(z=100, f=1000)
+        for i in range(30):
+            # Corner
+            grbl.move(t=-34.827, p=-48.867, f=f)
+            # Wafer station
+            grbl.move(t=-21.138, p=-128.760, f=f)
+            print("Error % 4u" % (i,))
+            for i in range(3):
+                time.sleep(1.2)
+                pos_new = ra.grbl_get_pos_scara()
+                dt = -21.138 - pos_new['t_encoder']
+                dp = -128.760 - pos_new['p_encoder']
+                print("  t=%0.3f, p=%0.3f" % (dt, dp))
+
+    #def home_at_loadlock():
+    #    safely_get_to_loadlock(homing=True)
+
+
 class RobotCell:
     def __init__(self):
         self.ra = RobotArm()
@@ -498,179 +859,24 @@ def main():
                 print("")
                 print("pos5", ra.grbl_get_pos_scara())
 
-        def safely_get_to_loadlock(homing=False):
-            """
-            """
-
-            # 5000 lost a lot of steps
-            print("")
-            print("")
-            print("")
-            if homing:
-                print("Rough position sync")
-                ra.home_p(block=True)
-                ra.home_t(block=True)
-            print("Checking initial arm position to move to loadlock")
-            start = ra.grbl_get_pos_scara()
-            # are we by the wafer stations?
-            if start['t'] > 0:
-                # phi folded over sharpy for tight space over there
-                assert start['p'] > 0
-                print("Starting by user load/unload port")
-                # Reverse earlier moves
-                grbl.move(z=100, f=1000, check=not homing)
-                grbl.move(t=24.434, p=122.498, f=2000, check=not homing)
-                grbl.move(t=24.434, p=134.055, f=2000, check=not homing)
-                grbl.move(t=-76.992, p=139.768, f=2000, check=not homing)
-                grbl.move(t=-86.638, p=80.420, f=2000, check=not homing)
-                grbl.move(t=-84.661, p=54.207, f=2000, check=not homing)
-                grbl.move(t=-34.827, p=-48.867, f=2000, check=not homing)
-            else:
-                print("Starting closer to TwimSkan load lock")
-                # corner is generally a safe move
-                grbl.move(z=100, f=1000)
-                grbl.move(t=-34.827, p=-48.867, f=2000, check=not homing)
-                print("first move complete")
-            # finally to station idle positon
-            if homing:
-                """
-                High level notes:
-                -Home once to get roughly in position, then another once we are closer to there => more reliable
-                -Resetting stepper pulse count makes positioning more reliable
-                -Encoders and steps are not aligned. But try to always do the same position for best consistency
-                -Many sensors take a while to flush through the system
-                """
-                print("move to homing position")
-
-                def move_homing1(check):
-                    grbl.move(t=-20, p=-120, f=2000, check=check)
-                    print("Restart homing1")
-                    # Reset step count on driver
-                    ra.t_reset(0)
-                    ra.p_reset(0)
-                    time.sleep(0.1)
-                    ra.t_reset(1)
-                    ra.p_reset(1)
-                # Encoders take a while to settle
-                # (0.5 to report position + 0.5 to transport)
-                print("Starting fine position sync")
-                move_homing1(check=False)
-                time.sleep(1.2)
-                print("Rough home p")
-                ra.home_p(block=True)
-                print("Rough home t")
-                ra.home_t(block=True)
-                if 1:
-                    move_homing1(check=False)
-                    # Encoders take a while to settle
-                    # (0.5 to report position + 0.5 to transport)
-                    time.sleep(1.2)
-                    print("Fine home p")
-                    ra.home_p(block=True)
-                    print("Fine home t")
-                    ra.home_t(block=True)
-            print("Move to final position")
-            grbl.move(t=-21.138, p=-128.760, f=2000)
-            print("")
-            print("")
-            print("")
-
-        def move_torture_test(f=2000):
-            print("")
-            print("")
-            print("")
-            print(f"Motion torture, f={f}")
-            safely_get_to_loadlock()
-            print("")
-            print("")
-            print("")
-            print(f"Motion torture, f={f}")
-            grbl.move(z=100, f=1000)
-            for i in range(30):
-                # Corner
-                grbl.move(t=-34.827, p=-48.867, f=f)
-                # Wafer station
-                grbl.move(t=-21.138, p=-128.760, f=f)
-                print("Error % 4u" % (i,))
-                for i in range(3):
-                    time.sleep(1.2)
-                    pos_new = ra.grbl_get_pos_scara()
-                    dt = -21.138 - pos_new['t_encoder']
-                    dp = -128.760 - pos_new['p_encoder']
-                    print("  t=%0.3f, p=%0.3f" % (dt, dp))
-
-        def home_at_loadlock():
-            safely_get_to_loadlock(homing=True)
-
-        def move_wafer_from_loadlock_to_loadport():
-            safely_get_to_loadlock()
-            
-            # prepare to enter wafer holder
-            # ra.move_pos({'z': 250}, f=100)
-            grbl.move(z=100, f=1000)
-            grbl.move(t=-21.138, p=-128.760, f=2000)
-            grbl.move(z=25, f=1000)
-            # into wafer holder
-            grbl.move(t=-32.651, p=-112.039, f=2000)
-            # up to grab wafer
-            # 50 => not enough clearance for attachments on bottom :P
-            grbl.move(z=80, f=1000)
-
-            # start in corner
-            grbl.move(t=-34.827, p=-48.867, f=500)
-            grbl.move(t=-84.661, p=54.207, f=500)
-            grbl.move(t=-86.638, p=80.420, f=500)
-            # elbow tucked in deep
-            grbl.move(t=-76.992, p=139.768, f=500)
-
-            # now the big move
-            grbl.move(t=24.434, p=134.055, f=500)
-            # move to load port
-            grbl.move(t=24.434, p=122.498, f=500)
-            # and in
-            # fixme
-            ra.set_station("loadport")
-
-        def move_wafer_from_loadport_to_loadlock():
-            # safely_get_to_loadport()
-
-            # clearance above wafer holder
-            grbl.move(z=80, f=1000)
-
-            # move to load port
-            grbl.move(t=24.434, p=122.498, f=500)
-            # near port tucked in
-            grbl.move(t=24.434, p=134.055, f=500)
-
-
-            # bulk move to corner
-            grbl.move(t=-76.992, p=139.768, f=500)
-            # get to corner itself
-            grbl.move(t=-86.638, p=80.420, f=500)
-            grbl.move(t=-84.661, p=54.207, f=500)
-            grbl.move(t=-34.827, p=-48.867, f=500)
-
-            # near wafer holder
-            grbl.move(t=-21.138, p=-128.760, f=500)
-            # into wafer holder
-            grbl.move(t=-32.651, p=-112.039, f=500)
-            # Set wafer down
-            grbl.move(z=25, f=1000)
-            # out of wafer holder
-            grbl.move(t=-21.138, p=-128.760, f=2000)
-            ra.set_station("loadlock")
 
         if 0:
-            move_torture_test(f=2000)
-            move_torture_test(f=5000)
-            move_torture_test(f=12000)
+            ra.move_torture_test(f=2000)
+            ra.move_torture_test(f=5000)
+            ra.move_torture_test(f=12000)
             print("Debug break")
             return
 
-        if 1:
-            home_at_loadlock()
-            move_wafer_from_loadlock_to_loadport()
-            move_wafer_from_loadport_to_loadlock()
+        print("homing test")
+        ra.force_user_move_to_loadport()
+        ra.home_at_loadport()
+        ra.move_wafer_from_loadport_to_loadlock()
+        print("")
+        if 0:
+            ra.force_user_move_to_loadport()
+            ra.home_at_loadport()
+            ra.move_wafer_from_loadport_to_loadlock()
+            ra.move_wafer_from_loadlock_to_loadport()
 
 
     except Exception as e:
