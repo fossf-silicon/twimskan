@@ -7,6 +7,7 @@ Waveshare Industrial 8-Channel Relay Module for Raspberry Pi Pico Power Supply I
 import belay
 import time
 
+# /dev/serial/by-id/usb-MicroPython_Board_in_FS_mode_e6612483cb225725-if00
 device = belay.Device("/dev/ttyACM0")
 
 device("""

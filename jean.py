@@ -7,6 +7,16 @@ WARNING: StdIn on micropython side was modified to make parsing easier
 <return>reply</return>
 
 
+angles
+t: theta
+p: phi ("theta2")
+z: Evezor z axis
+r: GRBL fork ("theta3")
+Special:
+f: feed
+
+
+
 TODO: generate new homing point near load station
 do this when installing / checking front shield which we'll need to be more careful about
 (possibly clear right now but unsure)
@@ -19,6 +29,8 @@ from pexpect_serial import SerialSpawn
 import ast
 from collections import OrderedDict
 import datetime
+from woodpecker import Woodpecker
+import glob
 
 def printt(format, *args, **kwargs):
     print(str(datetime.datetime.now().isoformat()) + ": " + format, *args, **kwargs)
@@ -179,13 +191,18 @@ class GrblWrap:
 
 
 class RobotArm:
-    def __init__(self):
+    def __init__(self, woodpecker=None):
         self.serial = serial.Serial('/dev/ttyUSB0', 115200, timeout=0.01)
         self.ss = SerialSpawn(self.serial)
         self.grbl = GrblWrap(self)
         self.station = None
         # Reduce feed rates when have wafer
         self.has_wafer = False
+
+        if woodpecker is None and len(glob.glob("/dev/ttyUSB*")) == 2:
+            print("RobotArm: auto-connecting woodpecker")
+            woodpecker = Woodpecker()
+        self.woodpecker = woodpecker
 
     def robot_init(self):
         self.home_t(block=True)
@@ -633,15 +650,14 @@ class RobotArm:
     def home_at_loadport(self):
         self.safely_get_to_loadport(homing=True)
 
-    def move_wafer_from_loadlock_to_loadport(self):
-        ra = self
-        grbl = ra.grbl
-        self.safely_get_to_loadlock()
-        
-        # prepare to enter wafer holder
-        # ra.move_pos({'z': 250}, f=100)
-        grbl.move(z=100, f=1000)
+    def pickup_wafer_loadport(self):
+        assert 0, "FIXME"
+
+    def pickup_wafer_loadlock(self):
+        grbl = self.ra.grbl
+        # Just outside of it
         grbl.move(t=-21.138, p=-128.760, f=2000)
+        # Get under wafer
         grbl.move(z=25, f=1000)
         # into wafer holder
         grbl.move(t=-32.651, p=-112.039, f=2000)
@@ -650,26 +666,19 @@ class RobotArm:
         grbl.move(z=80, f=1000)
         self.has_wafer = True
 
-        self.move_from_loadlock_to_loadport()
-
-        # and in
-        # fixme
+    def place_wafer_loadport(self):
+        """
+        Arm already holding wafer
+        """
+        assert 0, "FIXME"
         self.has_wafer = False
-        ra.set_station("loadport")
 
-    def move_wafer_from_loadport_to_loadlock(self):
-        ra = self
-        grbl = ra.grbl
-        self.safely_get_to_loadport()
-
-        # clearance above wafer holder
-        grbl.move(z=80, f=1000)
-
-        # fixme
-        self.has_wafer = True
-
-        self.move_from_loadport_to_loadlock()
-
+    def place_wafer_loadlock(self):
+        """
+        Arm already holding wafer
+        Loadlock in position
+        """
+        grbl = self.ra.grbl
         # into wafer holder
         grbl.move(t=-32.651, p=-112.039, f=500)
         # Set wafer down
@@ -677,7 +686,31 @@ class RobotArm:
         self.has_wafer = False
         # out of wafer holder
         grbl.move(t=-21.138, p=-128.760, f=2000)
-        ra.set_station("loadlock")
+
+    def move_wafer_to_microscope(self):
+        assert 0, "FIXME"
+
+    def move_wafer_from_loadlock_to_loadport(self):
+        grbl = self.grbl
+
+        self.safely_get_to_loadlock()
+        # prepare to enter wafer holder
+        # ra.move_pos({'z': 250}, f=100)
+        # grbl.move(z=100, f=1000)
+        self.pickup_wafer_loadlock()
+        self.move_from_loadlock_to_loadport()
+        self.place_wafer_loadport()
+        self.set_station("loadport")
+
+    def move_wafer_from_loadport_to_loadlock(self):
+        grbl = self.grbl
+        self.safely_get_to_loadport()
+        # clearance above wafer holder
+        grbl.move(z=80, f=1000)
+        self.pickup_wafer_loadport()
+        self.move_from_loadport_to_loadlock()
+        self.place_wafer_loadlock()
+        self.set_station("loadlock")
 
     def force_user_move_to_loadport(self):
         """
@@ -780,94 +813,10 @@ def main():
         print("Power up homing complete")
 
     try:
-
-        if 0:
-            ra.home_z(block=False)
-            while True:
-                print(ra.status())
-                time.sleep(0.2)
-
-        if 0:
-            print("Homing z")
-            ra.home_z(block=True)
-
-        if 0:
-            print("pos scara", ra.grbl_get_pos_scara())
-            while True:
-                ra.grbl_move_z(220, f=500)
-                print("pos scara", ra.grbl_get_pos_scara())
-                ra.grbl_move_z(240, f=500)
-                print("pos scara", ra.grbl_get_pos_scara())
-
-        print("starting moves")
-        #ra.move_pos({'z':250.000}, f=100)
-        if 0:
-            ra.move_pos({'t':-31.750, 'p':-109.292}, f=100)
-            ra.move_pos({'t':-86.506, 'p':67.698}, f=100)
-            ra.move_pos({'t':10.854, 'p':133.308}, f=100)
-
-        if 0:
-            print("pos", ra.grbl_get_pos_scara())
-            # where we should be / nop
-            ra.move_pos({'t':-2.943, 'p':-90.989}, f=100)
-            print("pos", ra.grbl_get_pos_scara())
-            #ra.move_pos({'t':-29.399, 'p':-112.742}, f=100)
-
-        if 0:
-            print("pos", ra.grbl_get_pos_scara())
-            print("homing")
-            ra.home_p(block=True)
-            ra.home_t(block=True)
-            print("pos", ra.grbl_get_pos_scara())
-            print("")
-            print("")
-            print("")
-            # where we should be / nop
-            ra.move_pos({'t': -34.651, 'p': -105.644}, f=100)
-            print("")
-            print("")
-            print("")
-            print("pos2", ra.grbl_get_pos_scara())
-            print("")
-            print("")
-            print("")
-            ra.move_pos({'t': -34.827, 'p': -48.867}, f=100)
-            print("")
-            print("")
-            print("")
-            print("pos3", ra.grbl_get_pos_scara())
-            print("")
-            print("")
-            print("")
-            ra.move_pos({'t': -80.684, 'p': 140.999}, f=100)
-
-            if 0:
-                ra.move_pos({'t': -25.422, 'p': 132.253}, f=100)
-                print("")
-                print("")
-                print("")
-                print("pos4", ra.grbl_get_pos_scara())
-                print("")
-                print("")
-                print("")
-                ra.move_pos({'t': 24.434, 'p': 134.055}, f=100)
-                print("")
-                print("")
-                print("")
-                print("pos5", ra.grbl_get_pos_scara())
-
-
-        if 0:
-            ra.move_torture_test(f=2000)
-            ra.move_torture_test(f=5000)
-            ra.move_torture_test(f=12000)
-            print("Debug break")
-            return
-
         print("homing test")
-        ra.force_user_move_to_loadport()
-        ra.home_at_loadport()
-        ra.move_wafer_from_loadport_to_loadlock()
+        #ra.force_user_move_to_loadport()
+        #ra.home_at_loadport()
+        # ra.move_wafer_from_loadport_to_loadlock()
         print("")
         if 0:
             ra.force_user_move_to_loadport()
