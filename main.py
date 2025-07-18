@@ -38,7 +38,7 @@ import time
 import traceback
 import random
 
-USE_HARDWARE = 0
+USE_HARDWARE = 1
 USE_ANDON = 1
 # ATTRACT_MODE = 0
 
@@ -82,7 +82,7 @@ class RobotCell:
             print("Connecting to woodpecker...")
             self.woodpecker = Woodpecker()
             print("Connecting to arm...")
-            self.arm = RobotArm(woodpecker=woodpecker)
+            self.arm = RobotArm(woodpecker=self.woodpecker)
             #self.laser = Laser()
         if USE_HARDWARE or USE_ANDON:
             # already connected
@@ -90,7 +90,7 @@ class RobotCell:
 
     def etch_wafer(self, design_file):
         print("Enforcing rotary table state...")
-        self.woodpecker.select_port_a_to_arm()
+        self.woodpecker.rt.select_port_a_to_arm()
     
         print("Moving wafer from loadport to loadlock...")
         if self.arm:
@@ -98,7 +98,7 @@ class RobotCell:
 
         print("Rotating station A into laser")
         if self.woodpecker:
-            self.woodpecker.select_port_b_to_arm()
+            self.woodpecker.rt.select_port_b_to_arm()
 
         """
         # FIXME
@@ -110,7 +110,7 @@ class RobotCell:
 
         print("Rotating station A to arm")
         if self.woodpecker:
-            self.woodpecker.select_port_a_to_arm()
+            self.woodpecker.rt.select_port_a_to_arm()
 
         print("Moving wafer from loadlock to loadport...")
         if self.arm:
@@ -125,7 +125,7 @@ class RobotCell:
         Attract mode uses a wafer in rotary slot B
         """
 
-        self.woodpecker.select_port_b_to_arm()
+        # self.woodpecker.rt.select_port_b_to_arm()
         self.arm_wafer = False
         self.loadport_wafer = False
         self.loadlock_wafer_a = False
@@ -133,78 +133,89 @@ class RobotCell:
 
         def wafer_b_at_loadport():
             self.wafer_b = "loadport"
-        def wafer_b_at_loadlock_b():
-            self.wafer_b = "loadlock_b"
+        #def wafer_b_at_loadlock_b():
+        #    self.wafer_b = "loadlock_b"
         def wafer_b_at_arm():
             self.wafer_b = "arm"
 
-        def pick_up_wafer(force):
+        def pick_up_wafer():
+            print("Attempting to pick up wafer?")
             if self.wafer_b == "arm":
+                print("Skip pick up: already in arm")
                 pass
             elif self.wafer_b == "loadport":
+                print("Picking up wafer from loadport")
+                self.arm.safely_get_to_loadport()
+                # FIXME: hack for bug
+                self.arm.woodpecker.theta3.home_lazy()
                 self.arm.pickup_wafer_loadport()
-            elif self.wafer_b == "loadlock":
-                self.woodpecker.select_port_b_to_arm()
-                if go.is_set() and not force:
-                    return
-                self.arm.pickup_wafer_loadlock()
             else:
                 assert 0, "lost the wafer"
             wafer_b_at_arm()
 
+        def random_andon():
+            if self.andon:
+                dest = random.randint(0, 3)
+                if dest == 0:
+                    self.andon.set_only_orange()
+                elif dest == 1:
+                    self.andon.set_only_red()
+                elif dest == 2:
+                    self.andon.set_only_green()
+                elif dest == 3:
+                    self.andon.set_only_blue()
+
         def inner():
-            wafer_b_at_loadlock_b()
+            wafer_b_at_loadport()
             if go.is_set():
                 return
 
+            random_andon()
+
             while not go.is_set():
-                mode = random.randint(6)
+                print("")
+                print("")
+                print("")
+                mode = random.randint(0, 5)
+                mode = 2
+                print("next mode", mode)
                 # Spin rotary to A
                 if mode == 0:
-                    self.woodpecker.select_port_a_to_arm()
+                    self.woodpecker.rt.select_port_a_to_arm()
                 # Spin rotary to B
                 elif mode == 1:
-                    self.woodpecker.select_port_b_to_arm()
+                    self.woodpecker.rt.select_port_b_to_arm()
                 # Pick up the wafer
                 elif mode == 2:
                     pick_up_wafer()
                 # Set down the wafer
                 elif mode == 3:
                     if self.wafer_b == "arm":
-                        dest = random.randint(2)
-                        if dest:
-                            self.arm.place_wafer_loadport()
-                            wafer_b_at_loadport()
-                        else:
-                            self.woodpecker.select_port_b_to_arm()
-                            if go.is_set():
-                                return
-                            self.arm.place_wafer_loadlock()
-                            wafer_b_at_loadlock_b()
+                        self.arm.safely_get_to_loadport()
+                        # FIXME: hack for bug
+                        self.arm.woodpecker.theta3.home_lazy()
+                        self.arm.place_wafer_loadport()
+                        wafer_b_at_loadport()
                 # Toggle andon
                 elif mode == 4:
-                    dest = random.randint(4)
-                    if self.cell.andon:
-                        if dest == 0:
-                            self.cell.andon.set_only_orange()
-                        elif dest == 1:
-                            self.cell.andon.set_only_red()
-                        elif dest == 2:
-                            self.cell.andon.set_only_green()
-                        elif dest == 3:
-                            self.cell.andon.set_only_blue()
+                    random_andon()
                 # Microscope
                 elif mode == 5:
                     if self.wafer_b == "arm":
+                        self.arm.safely_get_to_microscope()
                         self.arm.move_wafer_to_microscope()
                 else:
                     assert 0
+                time.sleep(1)
 
         def cleanup():
-            if self.wafer_b == "loadlock_b":
+            print("Cleaning up")
+            return
+            if self.wafer_b == "loadport_b":
                 return
             pick_up_wafer()
-            self.woodpecker.select_port_b_to_arm()
+            self.woodpecker.rt.select_port_b_to_arm()
+            self.arm.safely_get_to_loadport()
             self.arm.place_wafer_loadport()
             wafer_b_at_loadport()
 
@@ -240,12 +251,14 @@ class TaskThread(threading.Thread):
                 else:
                     print("TaskThread: attract mode")
                     if USE_HARDWARE:
+                        self.cell.woodpecker.grbl.gs.update_check_thread()
                         self.cell.attract_iteration(self.go)
                     time.sleep(1.0)
             except Exception as e:
                 print("WARNING: exception :()")
                 traceback.print_exc()
                 print(e)
+                time.sleep(1)
 
 class App:
     def __init__(self, root):
@@ -360,8 +373,9 @@ class App:
             if event.char == " ":
                 self.set_state_wait_selection()
         elif self.state == "WAIT_SELECTION":
-            self.selected_index = SELECTION_KEYS.index(event.char)
-            self.show_countdown_popup()
+            if event.char in SELECTION_KEYS:
+                self.selected_index = SELECTION_KEYS.index(event.char)
+                self.show_countdown_popup()
 
     def show_countdown_popup(self):
         self.countdown_running = True
