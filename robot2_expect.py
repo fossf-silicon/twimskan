@@ -33,45 +33,147 @@ def assert_max_axis_error(pos_want, pos_got, tolerance=1):
         delta = abs(pos_got[k] - pos_want[k])
         assert delta < tolerance, (pos_want, pos_got)
 
+def within_max_axis_error(pos_want, pos_got, tolerance=1):
+    for k in pos_want.keys():
+        delta = abs(pos_got[k] - pos_want[k])
+        if delta > tolerance:
+            return False
+    return True
+
+def pos2tpz(pos):
+    ret = {}
+
+    for k in "tpz":
+        v = pos.get(k)
+        if v is None:
+            continue
+        ret[k] = v
+    return ret
+
+def encoder2pos(pos, z=False):
+    """
+    Take position w/ supplamental encoder info and convert it to a normal t / p
+    z is not included by default
+    """
+    ret = {}
+
+    for k in "tp":
+        v = pos.get(k + "_encoder")
+        if v is None:
+            continue
+        ret[k] = v
+    if z:
+        v = pos.get("z")
+        if v is not None:
+            ret["z"] = v
+    return ret
+
+def encoded_pos(pos):
+    """
+    Only axes that have encoders (t, p)
+    """
+    ret = {}
+
+    for k in "tp":
+        v = pos.get(k)
+        if v is None:
+            continue
+        ret[k] = v
+    return ret
+
+class PositionTimeout(Exception):
+    pass
+
+def check_position(ra, pos_want, pos_final, settle_timeout=0.6):
+    tstart = time.time()
+    while True:
+        # This should be really tight (within 0.001)
+        # If GRBL didn't obey us something fundamental is wrong
+        if within_max_axis_error(pos_want, pos_final, tolerance=0.002):
+            break
+        if time.time() - tstart > settle_timeout:
+            #assert_max_axis_error(pos_want, pos_final, tolerance=0.002)
+            raise PositionTimeout("Failed to settle (GRBL) %s %s" % (pos_want, pos_final))
+        pos_final = ra.grbl_get_pos_scara()
+        time.sleep(0.05)
+        print("Not within tolerance, checking again")
+
+    # encoders are slow to update
+    pos_final = encoder2pos(pos_final)
+    pos_want = encoded_pos(pos_want)
+    while True:
+        if 0:
+            deltas = {}
+            for k, v in pos_want.items():
+                deltas[k] = pos_final[k + "_encoder"] - pos_want[k]
+            print("  Encoder error: " + format_scara_pos(deltas))
+        if within_max_axis_error(pos_want, pos_final, tolerance=0.1):
+            break
+        if time.time() - tstart > settle_timeout:
+            #assert_max_axis_error(pos_want, pos_final, tolerance=0.1)
+            raise PositionTimeout("Failed to settle (encoder) %s %s" % (pos_want, pos_final))
+        pos_final = encoder2pos(ra.grbl_get_pos_scara())
+        time.sleep(0.05)
+        print("Not within tolerance, checking again")
+
 class GrblWrap:
     def __init__(self, ra):
         self.ra = ra
 
     def move(self, block=True, timeout=30.0, check=True, **kwargs):
+        settle_timeout = 3.0
         moves = ", ".join(["%s=%s" % (k, v) for k, v in sorted(kwargs.items())])
         self.ra.command(f"grbl.move({moves})")
         if block:
+            tstart = time.time()
             # 0.6 not enough
             # be really conservative for now
             time.sleep(1.1)
             self.ra.wait_idle(timeout=timeout)
             if check:
-                pos_want = dict(kwargs)
-                if 'f' in pos_want:
-                    del pos_want['f']
-                #print("Check pos: " + format_scara_pos(pos_want))
-                pos_final = self.ra.grbl_get_pos_scara()
-                #print("pos_want", pos_want)
-                #print("pos_final", pos_final)
-                deltas = {}
-                for k, v in pos_want.items():
-                    deltas[k] = pos_final[k] - pos_want[k]
-                #print("  GRBL error: " + format_scara_pos(deltas))
-                # This should be really tight (within 0.001)
-                # If GRBL didn't obey us something fundamental is wrong
-                assert_max_axis_error(pos_want, pos_final, tolerance=0.002)
-
-                # encoders are slow to update
-                if 0:
-                    deltas = {}
-                    if "z" in pos_want:
-                        del pos_want["z"]
-                    for k, v in pos_want.items():
-                        if k not in "ph":
-                            continue
-                        deltas[k] = pos_final[k + "_encoder"] - pos_want[k]
-                    print("  Encoder error: " + format_scara_pos(deltas))
-                    assert_max_axis_error(pos_want, pos_final)
+                while True:
+                    pos_want = dict(kwargs)
+                    if 'f' in pos_want:
+                        del pos_want['f']
+                    #print("Check pos: " + format_scara_pos(pos_want))
+                    pos_final = self.ra.grbl_get_pos_scara()
+                    #print("pos_want", pos_want)
+                    #print("pos_final", pos_final)
+                    if 0:
+                        deltas = {}
+                        for k, v in pos_want.items():
+                            deltas[k] = pos_final[k] - pos_want[k]
+                        print("  GRBL error: " + format_scara_pos(deltas))
+                    # may have slipped
+                    try:
+                        check_position(self.ra, pos_want, pos_final, settle_timeout=0.6)
+                        break
+                    except PositionTimeout:
+                        pass
+                    if time.time() - tstart > timeout:
+                        raise Exception("Failed to settle movement")
+                    print("WARNING: timed out trying to reach position. Homing, nudging")
+                    print("Want", format_scara_pos(pos_want))
+                    pos_final = self.ra.grbl_get_pos_scara()
+                    print("SCARA (GRBL)", format_scara_pos(pos2tpz(pos_final)))
+                    print("SCARA (encoder)", format_scara_pos(encoder2pos(pos_final)))
+                    time.sleep(2.0)
+                    print("homing t")
+                    self.ra.grbl_disable_motors()
+                    self.ra.grbl_enable_motors()
+                    time.sleep(2.0)
+                    self.ra.home_t(block=False)
+                    self.ra.home_t(block=True)
+                    time.sleep(2.0)
+                    print("homing p")
+                    self.ra.grbl_disable_motors()
+                    self.ra.grbl_enable_motors()
+                    time.sleep(2.0)
+                    self.ra.home_p(block=False)
+                    self.ra.home_p(block=True)
+                    time.sleep(2.0)
+                    self.ra.command(f"grbl.move({moves})")
+  
         else:
             assert 0, "everything should block right now"
 
@@ -85,8 +187,8 @@ class RobotArm:
         self.station = None
 
     def robot_init(self):
-        self.home_p(block=True)
         self.home_t(block=True)
+        self.home_p(block=True)
         self.home_z(block=True)
 
     def command(self, s):
@@ -149,8 +251,9 @@ class RobotArm:
         if block:
             # HACK: command can go in before we check status :(
             # 0.6 sec is not enough, 0.7 min
-            time.sleep(1.0)
-            self.wait_idle(timeout=30)
+            time.sleep(1.1)
+            # takes a while if far down
+            self.wait_idle(timeout=60)
 
     def grbl_disable_motors(self):
         """
@@ -269,6 +372,13 @@ class RobotArm:
     def set_station(self, station):
         self.station = station
 
+class RobotCell:
+    def __init__(self):
+        self.ra = RobotArm()
+        # TODO: add grbl controller
+        # TODO: add laser
+        # TODO: add rp2040 for stack lights and such
+
 def main():
     ra = RobotArm()
     grbl = ra.grbl
@@ -283,13 +393,27 @@ def main():
     #print("Got", ra.gui())
 
     print("status", ra.status())
-    print("pos cart", ra.grbl_get_pos_cartesian())
-    print("pos scara", ra.grbl_get_pos_scara())
 
     print("Verifying idle")
     ra.wait_idle(timeout=1)
 
+    print("pos cart", ra.grbl_get_pos_cartesian())
+    pos_scara = ra.grbl_get_pos_scara()
+    print("pos scara", pos_scara)
+    # t / p are a bit safe to do automatically 
+    if pos_scara['z'] == 0.0:
+        # assert 0, "z not homed (probably). Home before continuing"
+        print("Need to home Z")
+        print("Ensure is clear")
+        input("Press Enter to continue...")
+        ra.home_z(block=True)
+        print("Homing t/p")
+        ra.home_t(block=True)
+        ra.home_p(block=True)
+        print("Power up homing complete")
+
     try:
+
         if 0:
             ra.home_z(block=False)
             while True:
@@ -388,6 +512,7 @@ def main():
             else:
                 print("Starting closer to TwimSkan load lock")
                 # corner is generally a safe move
+                grbl.move(z=100, f=1000)
                 grbl.move(t=-34.827, p=-48.867, f=2000)
                 print("first move complete")
             # finally to station idle positon
@@ -490,15 +615,16 @@ def main():
             grbl.move(t=-21.138, p=-128.760, f=2000)
             ra.set_station("loadlock")
 
-        if 1:
-            # move_torture_test(f=2000)
-            # move_torture_test(f=5000)
+        if 0:
+            move_torture_test(f=2000)
+            move_torture_test(f=5000)
             move_torture_test(f=12000)
             print("Debug break")
             return
 
-        move_wafer_from_loadlock_to_loadport()
-        move_wafer_from_loadport_to_loadlock()
+        if 1:
+            move_wafer_from_loadlock_to_loadport()
+            move_wafer_from_loadport_to_loadlock()
 
 
     except Exception as e:
