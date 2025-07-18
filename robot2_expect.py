@@ -2,6 +2,11 @@
 """
 WARNING: StdIn on micropython side was modified to make parsing easier
 <return>reply</return>
+
+
+TODO: generate new homing point near load station
+do this when installing / checking front shield which we'll need to be more careful about
+(possibly clear right now but unsure)
 """
 import time
 import sys
@@ -110,6 +115,9 @@ def check_position(ra, pos_want, pos_final, settle_timeout=0.6):
         time.sleep(0.05)
         print("Not within tolerance (GRBL), checking again")
 
+    # Encoders have an accuracy of 0.8 degrees per datasheet
+    # Use them for rough crash detection but don't rely on them for actual position
+    # We could sweep + make calibration map if we really needed something better
     # encoders are slow to update
     # Noise around 0.04 degree
     # Look for gross errors to start
@@ -124,7 +132,7 @@ def check_position(ra, pos_want, pos_final, settle_timeout=0.6):
             print("  Encoder error: " + format_scara_pos(deltas))
         # FIXME: lower for now to see if we can make progress reliably
         # if within_max_axis_error(pos_want, pos_final, tolerance=0.1):
-        if within_max_axis_error(pos_want, pos_final, tolerance=0.6):
+        if within_max_axis_error(pos_want, pos_final, tolerance=2.0):
             break
         if time.time() - tstart > settle_timeout:
             #assert_max_axis_error(pos_want, pos_final, tolerance=0.1)
