@@ -731,12 +731,12 @@ class RobotArm:
         grbl = self.grbl
         grbl.move(z=80, f=1000)
         # into wafer holder
-        grbl.move(t=-32.651, p=-112.039, f=500)
+        grbl.move(t=-33.970, p=-112.434, f=2000)
         # Set wafer down
         grbl.move(z=25, f=1000)
         self.has_wafer = False
         # out of wafer holder
-        grbl.move(t=-21.138, p=-128.760, f=2000)
+        self.move_loadlock_final_approach()
 
 
 
@@ -1006,6 +1006,11 @@ def main():
             # don't know source
             ra.woodpecker.theta3.home_lazy()
             ra.safely_get_to_loadlock()
+            ra.woodpecker.theta3.home_lazy()
+            print("Picking up wafer")
+            ra.pickup_wafer_loadlock()
+            print("Placing wafer")
+            ra.place_wafer_loadlock()
 
     except Exception as e:
         print("WARNING: exception")

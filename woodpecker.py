@@ -50,11 +50,12 @@ class Theta3:
         1.37 from end
         """
         print("Theta3: homing")
-        self.woodpecker.grbl.gs.j("Y-7 F60")
+        self.off_home -= 4
+        self.off_center -= 4
+        self.woodpecker.grbl.gs.j("Y%f F60" % self.off_home)
         self.wait_idle()
         time.sleep(0.2)
-        # self.woodpecker.grbl.gs.j("Y-3.63 F100")
-        self.woodpecker.grbl.gs.j("Y-5.63 F60")
+        self.woodpecker.grbl.gs.j("Y%f F60" % self.off_center)
         self.wait_idle()
         time.sleep(0.2)
         self.homed = True
