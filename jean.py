@@ -227,7 +227,7 @@ class RobotArm:
 
     def command(self, s):
         verbose = False
-        print("arm sending", s)
+        # print("arm sending", s)
 
         # this will poison controller
         # arm sending grbl.move(f=None, p=135.549, r=-62, t=16.941)
@@ -654,13 +654,15 @@ class RobotArm:
         """
         Fork right in front of but not in the load lock
         """
-        self.grbl.move(t=-21.138, p=-128.760, r=fixme, f=f, check=check)
+        print("move_loadlock_final_approach()")
+        self.grbl.move(t=-21.138, p=-128.760, r=58, f=f, check=check)
 
     def move_loadlock_corner(self, f=None, check=True):
         """
         The cell corner near the load lock
         Generally a good clearance position as not a lot of stuff there
         """
+        print("move_loadlock_corner()")
         self.grbl.move(t=-34.827, p=-48.867)
 
     # def safely_get_to_loadlock(self, homing=False):
@@ -707,13 +709,14 @@ class RobotArm:
         print("")
 
     def pickup_wafer_loadlock(self):
+        """
+        Must do final approach first
+        """
         grbl = self.grbl
-        # Just outside of it
-        grbl.move(t=-21.138, p=-128.760, f=2000)
         # Get under wafer
         grbl.move(z=25, f=1000)
         # into wafer holder
-        grbl.move(t=-32.651, p=-112.039, f=2000)
+        grbl.move(t=-34.321, p=-111.863, f=2000)
         # up to grab wafer
         # 50 => not enough clearance for attachments on bottom :P
         grbl.move(z=80, f=1000)
@@ -818,6 +821,8 @@ class RobotArm:
 
         # reverse of above moves
         grbl = self.grbl
+        grbl.move(r=-90, f=80)
+        # assert 0, "debug break"
         grbl.move(t=24.434, p=122.498, f=f, check=check)
         grbl.move(t=24.434, p=134.055, f=f, check=check)
         grbl.move(t=-76.992, p=139.768, f=f, check=check)
@@ -997,6 +1002,9 @@ def main():
             ra.safely_get_to_loadport()
 
         if args.test_loadlock:
+            # FIXME: workaround for bug
+            # don't know source
+            ra.woodpecker.theta3.home_lazy()
             ra.safely_get_to_loadlock()
 
     except Exception as e:

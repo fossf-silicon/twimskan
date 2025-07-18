@@ -34,8 +34,8 @@ class Theta3:
     """
     def __init__(self, woodpecker):
         self.woodpecker = woodpecker
-        self.off_home = -4
-        self.off_center = -3.63
+        self.off_home = -7
+        self.off_center = -5.63
         """
         0.9 degree stepper
         360 / 0.9 => 400 steper per rev
@@ -49,11 +49,12 @@ class Theta3:
         (gently) crash r / phi3 to set its position
         1.37 from end
         """
-        self.woodpecker.grbl.gs.j("Y-5 F80")
+        print("Theta3: homing")
+        self.woodpecker.grbl.gs.j("Y-7 F60")
         self.wait_idle()
         time.sleep(0.2)
         # self.woodpecker.grbl.gs.j("Y-3.63 F100")
-        self.woodpecker.grbl.gs.j("Y-3.63 F80")
+        self.woodpecker.grbl.gs.j("Y-5.63 F60")
         self.wait_idle()
         time.sleep(0.2)
         self.homed = True
@@ -68,8 +69,8 @@ class Theta3:
         CCW angles are, by Evezor convention, positive, but negative y values are CCW 
         """
         value = r / self.degrees_per_unit  + self.off_center
-        print("setting %0.3f" % value)
-        self.woodpecker.grbl.gs.j("Y%0.3f F80" % value)
+        print("Theta3: setting %0.3f => %0.3f" % (r, value))
+        self.woodpecker.grbl.gs.j("Y%0.3f F60" % value)
         if block:
             self.wait_idle()
 
@@ -124,10 +125,11 @@ def main():
         w.theta3.move(90)
         w.theta3.move(-90)
 
+    if args.home:
+        print("Homing")
+        w.theta3.home()
+
     if args.theta3 is not None:
-        if args.home:
-            print("Homing")
-            w.theta3.home()
         print("Moving", args.theta3)
         w.theta3.move(args.theta3)
 
