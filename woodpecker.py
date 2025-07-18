@@ -35,7 +35,7 @@ class Theta3:
     def __init__(self, woodpecker):
         self.woodpecker = woodpecker
         self.off_home = -4
-        self.off_center = -2.63
+        self.off_center = -3.63
         """
         0.9 degree stepper
         360 / 0.9 => 400 steper per rev
@@ -49,11 +49,13 @@ class Theta3:
         (gently) crash r / phi3 to set its position
         1.37 from end
         """
-        self.woodpecker.grbl.gs.j("Y-4 F100")
+        self.woodpecker.grbl.gs.j("Y-5 F80")
         self.wait_idle()
+        time.sleep(0.2)
         # self.woodpecker.grbl.gs.j("Y-3.63 F100")
-        self.woodpecker.grbl.gs.j("Y-2.63 F100")
+        self.woodpecker.grbl.gs.j("Y-3.63 F80")
         self.wait_idle()
+        time.sleep(0.2)
         self.homed = True
 
     def home_lazy(self):
@@ -67,7 +69,7 @@ class Theta3:
         """
         value = r / self.degrees_per_unit  + self.off_center
         print("setting %0.3f" % value)
-        self.woodpecker.grbl.gs.j("Y%0.3f F100" % value)
+        self.woodpecker.grbl.gs.j("Y%0.3f F80" % value)
         if block:
             self.wait_idle()
 

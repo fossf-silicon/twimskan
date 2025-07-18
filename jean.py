@@ -497,10 +497,10 @@ class RobotArm:
         # self.grbl.move(t=24.434, p=122.498, f=f, check=check)
         # needs to be tucked in more or fork won't clear
         # self.grbl.move(t=16.941, p=135.549, r=-62, f=f, check=check)
-        self.grbl.move(t=21.489, p=130.583, r=-62, f=f, check=check)
+        self.grbl.move(t=20.215, p=133.616, r=-62, f=f, check=check)
 
     def get_loadport_final_approach_pos(self):
-        return {'t':16.941, 'p':135.549}
+        return {'t':20.215, 'p':133.616}
 
     def pickup_wafer_loadport(self):
         """
@@ -509,13 +509,14 @@ class RobotArm:
         30.476
         114.851
 
-        z=30 below
+        z=30 below wafer
+        z=20 below surface. not needed but safer for testing
         z=50 well cleared
         """
         # Set expected z height
-        self.grbl.move(z=30)
+        self.grbl.move(z=20)
         # move in
-        self.grbl.move(t=21.138, p=128.760)
+        self.grbl.move(t=31.948, p=114.346)
         # pick up
         self.grbl.move(z=50)
         self.has_wafer = True
@@ -527,9 +528,9 @@ class RobotArm:
         # Set expected z height
         self.grbl.move(z=50)
         # move in
-        self.grbl.move(t=-21.138, p=-128.760)
+        self.grbl.move(t=31.948, p=114.346)
         # Let go of it
-        self.grbl.move(z=30)
+        self.grbl.move(z=20)
         self.has_wafer = False
 
     def safely_get_to_loadport(self, homing=False):
@@ -927,16 +928,18 @@ def main():
             ra.move_wafer_from_loadlock_to_loadport()
 
         # loadport test
+        # Including homing takes: 1:17
         if 1:
             print("Doing final approach")
             ra.move_loadport_final_approach()
-            return
             print("Picking up")
             time.sleep(5)
             ra.pickup_wafer_loadport()
+            ra.move_loadport_final_approach()
             print("Placing")
             time.sleep(5)
             ra.place_wafer_loadport()
+            ra.move_loadport_final_approach()
 
     except Exception as e:
         print("WARNING: exception")
