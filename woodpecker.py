@@ -15,11 +15,11 @@ class RotaryTable:
     def __init__(self, woodpecker):
         self.woodpecker = woodpecker
 
-    def select_port_a(self):
+    def select_port_a_to_arm(self):
         self.woodpecker.grbl.gs.j("X.0 F2000")
         self.woodpecker.grbl.wait_idle()
 
-    def select_port_b(self):
+    def select_port_b_to_arm(self):
         """
         X=4 => 5 degrees CW
         180 / 5 * 4 = 144
@@ -53,11 +53,11 @@ def main():
 
     if 0:
         print("Selecting port A")
-        w.rt.select_port_a()
+        w.rt.select_port_a_to_arm()
         print("Selecting port B")
-        w.rt.select_port_b()
+        w.rt.select_port_b_to_arm()
         print("Selecting port A")
-        w.rt.select_port_a()
+        w.rt.select_port_a_to_arm()
 
 
 if __name__ == "__main__":

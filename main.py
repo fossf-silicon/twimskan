@@ -26,9 +26,13 @@ import threading
 import subprocess
 from woodpecker import Woodpecker
 from jean import RobotArm
+import threading
+import time
+import traceback
 
-USE_HARDWARE=0
-USE_ANDON=1
+USE_HARDWARE = 0
+USE_ANDON = 1
+# ATTRACT_MODE = 0
 
 # NOTE: this connects the andon here right now
 if USE_ANDON or USE_HARDWARE:
@@ -40,14 +44,95 @@ LASERCAT_FILE = "images/lasercat.jpg"
 SELECTION_KEYS = ["a", "s", "d"]
 KEY_READY = " "
 
+"""
+
+git clone https://github.com/meerk40t/meerk40t.git
+cd meerk40t
+python -m venv venv
+. venv/bin/activate
+pip install -r requirements.txt
+"""
+class Laser:
+    def __init__(self):
+        pass
+
+    def engrave(self, file)
+
+class RobotCell:
+    def __init__(self):
+        self.woodpecker = None
+        self.arm = None
+        self.andon = None
+        self.laser = None
+
+        if USE_HARDWARE:
+            print("Connecting to woodpecker...")
+            self.woodpecker = Woodpecker()
+            print("Connecting to arm...")
+            self.arm = RobotArm()
+            self.laser = Laser()
+        if USE_HARDWARE or USE_ANDON:
+            # already connected
+            self.andon = Andon()
+
+    def etch_wafer(self, design_file):
+        print("Moving wafer from loadport to loadlock...")
+        if self.arm:
+            self.arm.move_wafer_from_loadport_to_loadlock()
+
+        print("Rotating station A into laser")
+        if self.woodpecker:
+            self.woodpecker.select_port_b_to_arm()
+
+        # FIXME
+        print("Firing laser")
+        if self.laser:
+            assert os.path.exists(design_file)
+            self.laser.engrave(design())
+
+        print("Rotating station A to arm")
+        if self.woodpecker:
+            self.woodpecker.select_port_a_to_arm()
+
+        print("Moving wafer from loadlock to loadport...")
+        if self.arm:
+            self.arm.move_wafer_from_loadlock_to_loadport()
+
+class TaskThread(threading.Thread):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.arm = app.arm
+        self.running = threading.Event()
+        self.running.set()
+        self.go = threading.Event()
+        self.done = threading.Event()
+
+    def run_task(self):
+        self.task_thread.done.clear()
+        self.task_thread.go.set()
+
+    def run(self):
+        while self.running.is_set():
+            try:
+                if not self.go.is_set():
+                    time.sleep(0.1)
+                    continue
+                self.go.clear()
+                print("TaskThread go go go")
+                time.sleep(3)
+                print("TaskThread idling")
+                self.done.set()
+            except Exception as e:
+                print("WARNING: exception :()")
+                traceback.print_exc()
+                print(e)
+
 class App:
     def __init__(self, root):
         self.root = root
         self.root.title("Image Picker")
-        self.woodpecker = None
-        self.arm = None
-        self.andon = None
-        self.init_hardware()
+        self.state = None
         self.images = []
         self.labels = []
         self.selected_index = None
@@ -61,44 +146,40 @@ class App:
         self.root.bind("<Key>", self.on_key)
         self.load_images()
 
-        self.state = None
+        self.init_hardware()
+        self.task_thread = TaskThread(self)
+        self.task_thread.start()
         self.set_state_idle()
 
     def set_state_idle(self):
         self.state = "IDLE"
         self.create_main_screen()
         self.update_label('Hold please! Waiting for wafer...')
-        if self.andon:
-            self.andon.set_only_orange()
+        if self.cell.andon:
+            self.cell.andon.set_only_orange()
 
     def set_state_wait_selection(self):
         self.state = "WAIT_SELECTION"
         self.update_label('LASER UPLINK ESTABLISHED... MAKE YOUR MOVE!')
-        if self.andon:
-            self.andon.set_only_blue()
+        if self.cell.andon:
+            self.cell.andon.set_only_blue()
 
     def set_state_running(self):
         self.state = "RUNNING"
         self.update_label('LASER GO BRRR')
-        if self.andon:
-            self.andon.set_only_green()
+        if self.cell.andon:
+            self.cell.andon.set_only_green()
+        self.task_thread.run_task()
 
     def set_state_error(self):
         self.state = "ERROR"
         self.update_label('Oh noes! Contact booth staff :()')
-        if self.andon:
-            self.andon.set_only_red()
-            # self.andon.set_beeper(1)
+        if self.cell.andon:
+            self.cell.andon.set_only_red()
+            # self.cell.andon.set_beeper(1)
 
     def init_hardware(self):
-        if USE_HARDWARE:
-            print("Connecting to woodpecker...")
-            self.woodpecker = Woodpecker()
-            print("Connecting to arm...")
-            self.arm = RobotArm()
-        if USE_HARDWARE or USE_ANDON:
-            # already connected
-            self.andon = Andon()
+        self.cell = RobotCell()
 
     def load_images(self):
         # Get screen size for dynamic resizing
@@ -195,7 +276,7 @@ class App:
             self.cancel_countdown()
 
     def show_sleep_dialog(self):
-        self.sleep_seconds = 20
+        self.sleep_seconds = 0
         self.sleep_dialog = tk.Toplevel(self.root)
         self.sleep_dialog.title("Please wait")
         # Show a larger lasercat image above the countdown label
@@ -218,7 +299,7 @@ class App:
     def update_sleep_dialog(self):
         if self.sleep_seconds > 0:
             self.sleep_label.config(text=f"INITIATING CYBER RETURN SEQUENCE: {self.sleep_seconds}")
-            self.sleep_seconds -= 1
+            self.sleep_seconds += 1
             self.root.after(1000, self.update_sleep_dialog)
         else:
             self.close_sleep_dialog()
@@ -241,4 +322,8 @@ class App:
 if __name__ == "__main__":
     root = tk.Tk()
     app = App(root)
-    root.mainloop()
+    try:
+        root.mainloop()
+    finally:
+        print("requesting task thread to shut down")
+        app.task_thread.running.clear()
