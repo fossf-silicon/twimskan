@@ -744,18 +744,24 @@ class RobotArm:
     *****************************************************************************
     """
 
-
-
-    def enter_microscope(self):
+    def safely_get_to_microscope(self):
         grbl = self.grbl
-        # Just before
+        print("safely_get_to_microscope()")
+        # near by
+        self.safely_get_to_loadport()
+        # Just before microscope
         grbl.move(z=80, r=0)
         grbl.move(t=-17.732, p=104.722, r=0)
+
+    def enter_microscope(self):
+        print("enter_microscope()")
+        grbl = self.grbl
         grbl.move(z=20.1, r=0)
         # In
         grbl.move(t=5.955, p=83.408, r=0)
 
     def exit_microscope(self):
+        print("exit_microscope()")
         grbl = self.grbl
         grbl.move(t=-17.732, p=104.722, r=0)
         grbl.move(z=80, r=0)
@@ -982,13 +988,16 @@ def main():
             ra.set_has_wafer(True)
             # safe starting point
             print("Going to loadport")
-            ra.safely_get_to_loadport()
+            ra.safely_get_to_microscope()
             print("Entering microscope")
             ra.enter_microscope()
             print("Exiting microscope")
             ra.exit_microscope()
             print("Going to loadport")
             ra.safely_get_to_loadport()
+
+        if args.test_loadlock:
+            ra.safely_get_to_loadlock()
 
     except Exception as e:
         print("WARNING: exception")
