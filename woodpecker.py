@@ -34,8 +34,8 @@ class Theta3:
     """
     def __init__(self, woodpecker):
         self.woodpecker = woodpecker
-        self.off_home = -5
-        self.off_center = -3.63
+        self.off_home = -4
+        self.off_center = -2.63
         """
         0.9 degree stepper
         360 / 0.9 => 400 steper per rev
@@ -49,8 +49,10 @@ class Theta3:
         (gently) crash r / phi3 to set its position
         1.37 from end
         """
-        self.woodpecker.grbl.gs.j("Y-5 F100")
-        self.woodpecker.grbl.gs.j("Y-3.63 F100")
+        self.woodpecker.grbl.gs.j("Y-4 F100")
+        self.wait_idle()
+        # self.woodpecker.grbl.gs.j("Y-3.63 F100")
+        self.woodpecker.grbl.gs.j("Y-2.63 F100")
         self.wait_idle()
         self.homed = True
 
@@ -100,6 +102,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Woodpecker GRBL controller for rotary table, theta3, and laser Z")
     add_bool_arg(parser, "--verbose", default=False, help="Verbose output")
+    parser.add_argument("--theta3", type=float, default=None)
+    add_bool_arg(parser, "--home", default=True, help="Home at startup")
+    args = parser.parse_args()
 
     w = Woodpecker()
 
@@ -111,12 +116,18 @@ def main():
         print("Selecting port A")
         w.rt.select_port_a_to_arm()
 
-    if 1:
+    if 0:
         w.theta3.home()
         w.theta3.move(0)
         w.theta3.move(90)
         w.theta3.move(-90)
 
+    if args.theta3 is not None:
+        if args.home:
+            print("Homing")
+            w.theta3.home()
+        print("Moving", args.theta3)
+        w.theta3.move(args.theta3)
 
 if __name__ == "__main__":
     main()

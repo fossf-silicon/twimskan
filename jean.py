@@ -31,6 +31,7 @@ from collections import OrderedDict
 import datetime
 from woodpecker import Woodpecker
 import glob
+from uscope.util import add_bool_arg
 
 # ignore woodpecker moves to try arm w/o it
 STUB_WOODPECKER = 0
@@ -171,8 +172,6 @@ class GrblWrap:
     def move(self, block=True, timeout=30.0, check=True, **kwargs):
         settle_timeout = 3.0
 
-        moves = ", ".join(["%s=%s" % (k, v) for k, v in sorted(kwargs.items())])
-
         woodpecker_pos = None
         # hack
         if 'r' in kwargs:
@@ -181,6 +180,8 @@ class GrblWrap:
                 woodpecker_pos = kwargs['r']
                 self.ra.woodpecker.theta3.move(woodpecker_pos, block=block)
             del kwargs['r']
+
+        moves = ", ".join(["%s=%s" % (k, v) for k, v in sorted(kwargs.items())])
         self.ra.command(f"grbl.move({moves})")
         if block:
             tstart = time.time()
@@ -220,14 +221,17 @@ class RobotArm:
             woodpecker = Woodpecker()
         self.woodpecker = woodpecker
 
-    def robot_init(self):
-        self.home_t(block=True)
-        self.home_p(block=True)
-        self.home_z(block=True)
-
     def command(self, s):
         verbose = False
-        verbose and print("Sending")
+        print("arm sending", s)
+
+        # this will poison controller
+        # arm sending grbl.move(f=None, p=135.549, r=-62, t=16.941)
+        if s.find("r=") >= 0:
+            print("arm sending", s)
+            raise ValueError("probably bad command")
+
+        verbose and print("Sending", s)
         self.ss.sendline(s)
         verbose and print("Checking")
         self.ss.expect('</return>', timeout=1)
@@ -556,16 +560,18 @@ class RobotArm:
         """
         Fork right in front of but not in the load port
         """
-        self.grbl.move(t=24.434, p=122.498, f=f, check=check)
+        # self.grbl.move(t=24.434, p=122.498, f=f, check=check)
+        # needs to be tucked in more or fork won't clear
+        self.grbl.move(t=16.941, p=135.549, r=-62, f=f, check=check)
 
     def get_loadport_final_approach_pos(self):
-        return {'t':24.434, 'p':122.498}
+        return {'t':16.941, 'p':135.549}
 
     def move_loadlock_final_approach(self, f=None, check=True):
         """
         Fork right in front of but not in the load lock
         """
-        self.grbl.move(t=-21.138, p=-128.760, f=f, check=check)
+        self.grbl.move(t=-21.138, p=-128.760, r=fixme, f=f, check=check)
 
     def move_loadlock_corner(self, f=None, check=True):
         """
@@ -654,7 +660,7 @@ class RobotArm:
         print("Rough move complete")
         # finally to station idle positon
         if homing:
-            self.home_at_point({'t':20, 'p':120})
+            self.home_at_point({'t':20, 'p':130})
 
         print("Move to final position")
         # move to load port
@@ -706,6 +712,12 @@ class RobotArm:
         grbl.move(t=-21.138, p=-128.760, f=2000)
 
     def move_wafer_to_microscope(self):
+        grbl = self.ra.grbl
+        # Just before
+        grbl.move(t=-17.732, p=104.722, r=0)
+        # In
+        grbl.move(t=5.955, p=83.408, r=0)
+
         assert 0, "FIXME"
 
     def move_wafer_from_loadlock_to_loadport(self):
@@ -796,6 +808,14 @@ class RobotArm:
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Robot arm test app")
+    add_bool_arg(parser, "--verbose", default=False, help="Verbose output")
+    add_bool_arg(parser, "--home", default=True, help="Home at startup")
+    args = parser.parse_args()
+
     ra = RobotArm()
     grbl = ra.grbl
     print("Send command")
@@ -831,9 +851,10 @@ def main():
         print("Power up homing complete")
 
     try:
-        print("homing test")
-        ra.force_user_move_to_loadport()
-        ra.home_at_loadport()
+        if args.home:
+            print("Startup homing sequence")
+            ra.force_user_move_to_loadport()
+            ra.home_at_loadport()
         # ra.move_wafer_from_loadport_to_loadlock()
         print("")
         if 0:
