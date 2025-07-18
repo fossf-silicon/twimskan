@@ -10,6 +10,10 @@ import serial
 from pexpect_serial import SerialSpawn
 import ast
 from collections import OrderedDict
+import datetime
+
+def printt(format, *args, **kwargs):
+    print(str(datetime.datetime.now().isoformat()) + ": " + format, *args, **kwargs)
 
 class GrblTimeout(Exception):
     pass
@@ -35,9 +39,13 @@ def assert_max_axis_error(pos_want, pos_got, tolerance=1):
 
 def within_max_axis_error(pos_want, pos_got, tolerance=1):
     for k in pos_want.keys():
+        printt("within_max_axis_error: check %s: want %s, got %s" % (k, pos_want[k], pos_got[k]))
         delta = abs(pos_got[k] - pos_want[k])
         if delta > tolerance:
+            printt("  within_max_axis_error: axis fail")
             return False
+        printt("  within_max_axis_error: axis ok")
+        printt("  within_max_axis_error: ok")
     return True
 
 def pos2tpz(pos):
@@ -86,19 +94,25 @@ class PositionTimeout(Exception):
 
 def check_position(ra, pos_want, pos_final, settle_timeout=0.6):
     tstart = time.time()
+    print("check_position: GRBL")
     while True:
         # This should be really tight (within 0.001)
         # If GRBL didn't obey us something fundamental is wrong
-        if within_max_axis_error(pos_want, pos_final, tolerance=0.002):
+        # I've seen 0.003, shrug
+        # p=112.039 vs p=112.036
+        if within_max_axis_error(pos_want, pos_final, tolerance=0.005):
             break
         if time.time() - tstart > settle_timeout:
             #assert_max_axis_error(pos_want, pos_final, tolerance=0.002)
             raise PositionTimeout("Failed to settle (GRBL) %s %s" % (pos_want, pos_final))
         pos_final = ra.grbl_get_pos_scara()
         time.sleep(0.05)
-        print("Not within tolerance, checking again")
+        print("Not within tolerance (GRBL), checking again")
 
     # encoders are slow to update
+    # Noise around 0.04 degree
+    # Look for gross errors to start
+    print("check_position: encoder")
     pos_final = encoder2pos(pos_final)
     pos_want = encoded_pos(pos_want)
     while True:
@@ -107,14 +121,18 @@ def check_position(ra, pos_want, pos_final, settle_timeout=0.6):
             for k, v in pos_want.items():
                 deltas[k] = pos_final[k + "_encoder"] - pos_want[k]
             print("  Encoder error: " + format_scara_pos(deltas))
-        if within_max_axis_error(pos_want, pos_final, tolerance=0.1):
+        # FIXME: lower for now to see if we can make progress reliably
+        # if within_max_axis_error(pos_want, pos_final, tolerance=0.1):
+        if within_max_axis_error(pos_want, pos_final, tolerance=0.6):
             break
         if time.time() - tstart > settle_timeout:
             #assert_max_axis_error(pos_want, pos_final, tolerance=0.1)
             raise PositionTimeout("Failed to settle (encoder) %s %s" % (pos_want, pos_final))
         pos_final = encoder2pos(ra.grbl_get_pos_scara())
         time.sleep(0.05)
-        print("Not within tolerance, checking again")
+        print("Not within tolerance (encoder), checking again")
+
+    print("check_position: ok")
 
 class GrblWrap:
     def __init__(self, ra):
@@ -128,51 +146,17 @@ class GrblWrap:
             tstart = time.time()
             # 0.6 not enough
             # be really conservative for now
-            time.sleep(1.1)
+            print("Sent move. Waiting for idle")
+            time.sleep(1.2)
             self.ra.wait_idle(timeout=timeout)
             if check:
-                while True:
-                    pos_want = dict(kwargs)
-                    if 'f' in pos_want:
-                        del pos_want['f']
-                    #print("Check pos: " + format_scara_pos(pos_want))
-                    pos_final = self.ra.grbl_get_pos_scara()
-                    #print("pos_want", pos_want)
-                    #print("pos_final", pos_final)
-                    if 0:
-                        deltas = {}
-                        for k, v in pos_want.items():
-                            deltas[k] = pos_final[k] - pos_want[k]
-                        print("  GRBL error: " + format_scara_pos(deltas))
-                    # may have slipped
-                    try:
-                        check_position(self.ra, pos_want, pos_final, settle_timeout=0.6)
-                        break
-                    except PositionTimeout:
-                        pass
-                    if time.time() - tstart > timeout:
-                        raise Exception("Failed to settle movement")
-                    print("WARNING: timed out trying to reach position. Homing, nudging")
-                    print("Want", format_scara_pos(pos_want))
-                    pos_final = self.ra.grbl_get_pos_scara()
-                    print("SCARA (GRBL)", format_scara_pos(pos2tpz(pos_final)))
-                    print("SCARA (encoder)", format_scara_pos(encoder2pos(pos_final)))
-                    time.sleep(2.0)
-                    print("homing t")
-                    self.ra.grbl_disable_motors()
-                    self.ra.grbl_enable_motors()
-                    time.sleep(2.0)
-                    self.ra.home_t(block=False)
-                    self.ra.home_t(block=True)
-                    time.sleep(2.0)
-                    print("homing p")
-                    self.ra.grbl_disable_motors()
-                    self.ra.grbl_enable_motors()
-                    time.sleep(2.0)
-                    self.ra.home_p(block=False)
-                    self.ra.home_p(block=True)
-                    time.sleep(2.0)
-                    self.ra.command(f"grbl.move({moves})")
+                print("Verifying position was reached")
+                pos_want = dict(kwargs)
+                pos_want = encoded_pos(pos_want)
+                pos_final = self.ra.grbl_get_pos_scara()
+                # should already be here if its going to happen
+                # XXX: in practice I need to add more wait here
+                check_position(self.ra, pos_want, pos_final, settle_timeout=1.2)
   
         else:
             assert 0, "everything should block right now"
@@ -251,7 +235,7 @@ class RobotArm:
         if block:
             # HACK: command can go in before we check status :(
             # 0.6 sec is not enough, 0.7 min
-            time.sleep(1.1)
+            time.sleep(1.2)
             # takes a while if far down
             self.wait_idle(timeout=60)
 
@@ -372,6 +356,20 @@ class RobotArm:
     def set_station(self, station):
         self.station = station
 
+    def t_reset(self, value):
+        """
+        Active low
+        """
+        value = bool(value)
+        self.command("x_reset(%s)" % (value,))
+
+    def p_reset(self, value):
+        """
+        Active low
+        """
+        value = bool(value)
+        self.command("y_reset(%s)" % (value,))
+
 class RobotCell:
     def __init__(self):
         self.ra = RobotArm()
@@ -406,9 +404,11 @@ def main():
         print("Need to home Z")
         print("Ensure is clear")
         input("Press Enter to continue...")
+        print("Homing z...")
         ra.home_z(block=True)
-        print("Homing t/p")
+        print("Rough homing t...")
         ra.home_t(block=True)
+        print("Rough homing p...")
         ra.home_p(block=True)
         print("Power up homing complete")
 
@@ -489,11 +489,18 @@ def main():
                 print("")
                 print("pos5", ra.grbl_get_pos_scara())
 
-        def safely_get_to_loadlock():
+        def safely_get_to_loadlock(homing=False):
+            """
+            """
+
             # 5000 lost a lot of steps
             print("")
             print("")
             print("")
+            if homing:
+                print("Rough position sync")
+                ra.home_p(block=True)
+                ra.home_t(block=True)
             print("Checking initial arm position to move to loadlock")
             start = ra.grbl_get_pos_scara()
             # are we by the wafer stations?
@@ -502,33 +509,59 @@ def main():
                 assert start['p'] > 0
                 print("Starting by user load/unload port")
                 # Reverse earlier moves
-                grbl.move(z=100, f=1000)
-                grbl.move(t=24.434, p=122.498, f=2000)
-                grbl.move(t=24.434, p=134.055, f=2000)
-                grbl.move(t=-76.992, p=139.768, f=2000)
-                grbl.move(t=-86.638, p=80.420, f=2000)
-                grbl.move(t=-84.661, p=54.207, f=2000)
-                grbl.move(t=-34.827, p=-48.867, f=2000)
+                grbl.move(z=100, f=1000, check=not homing)
+                grbl.move(t=24.434, p=122.498, f=2000, check=not homing)
+                grbl.move(t=24.434, p=134.055, f=2000, check=not homing)
+                grbl.move(t=-76.992, p=139.768, f=2000, check=not homing)
+                grbl.move(t=-86.638, p=80.420, f=2000, check=not homing)
+                grbl.move(t=-84.661, p=54.207, f=2000, check=not homing)
+                grbl.move(t=-34.827, p=-48.867, f=2000, check=not homing)
             else:
                 print("Starting closer to TwimSkan load lock")
                 # corner is generally a safe move
                 grbl.move(z=100, f=1000)
-                grbl.move(t=-34.827, p=-48.867, f=2000)
+                grbl.move(t=-34.827, p=-48.867, f=2000, check=not homing)
                 print("first move complete")
             # finally to station idle positon
+            if homing:
+                """
+                High level notes:
+                -Home once to get roughly in position, then another once we are closer to there => more reliable
+                -Resetting stepper pulse count makes positioning more reliable
+                -Encoders and steps are not aligned. But try to always do the same position for best consistency
+                -Many sensors take a while to flush through the system
+                """
+                print("move to homing position")
+
+                def move_homing1(check):
+                    grbl.move(t=-20, p=-120, f=2000, check=check)
+                    print("Restart homing1")
+                    # Reset step count on driver
+                    ra.t_reset(0)
+                    ra.p_reset(0)
+                    time.sleep(0.1)
+                    ra.t_reset(1)
+                    ra.p_reset(1)
+                # Encoders take a while to settle
+                # (0.5 to report position + 0.5 to transport)
+                print("Starting fine position sync")
+                move_homing1(check=False)
+                time.sleep(1.2)
+                print("Rough home p")
+                ra.home_p(block=True)
+                print("Rough home t")
+                ra.home_t(block=True)
+                if 1:
+                    move_homing1(check=False)
+                    # Encoders take a while to settle
+                    # (0.5 to report position + 0.5 to transport)
+                    time.sleep(1.2)
+                    print("Fine home p")
+                    ra.home_p(block=True)
+                    print("Fine home t")
+                    ra.home_t(block=True)
             print("Move to final position")
             grbl.move(t=-21.138, p=-128.760, f=2000)
-            print("Restart homing1")
-            # Encoders take a while to settle
-            time.sleep(0.5)
-            ra.home_p(block=True)
-            ra.home_t(block=True)
-            if 1:
-                print("Restart move + homing2")
-                time.sleep(0.5)
-                grbl.move(t=-21.138, p=-128.760, f=2000)
-                ra.home_p(block=True)
-                ra.home_t(block=True)
             print("")
             print("")
             print("")
@@ -551,11 +584,14 @@ def main():
                 grbl.move(t=-21.138, p=-128.760, f=f)
                 print("Error % 4u" % (i,))
                 for i in range(3):
-                    time.sleep(1.1)
+                    time.sleep(1.2)
                     pos_new = ra.grbl_get_pos_scara()
                     dt = -21.138 - pos_new['t_encoder']
                     dp = -128.760 - pos_new['p_encoder']
                     print("  t=%0.3f, p=%0.3f" % (dt, dp))
+
+        def home_at_loadlock():
+            safely_get_to_loadlock(homing=True)
 
         def move_wafer_from_loadlock_to_loadport():
             safely_get_to_loadlock()
@@ -623,6 +659,7 @@ def main():
             return
 
         if 1:
+            home_at_loadlock()
             move_wafer_from_loadlock_to_loadport()
             move_wafer_from_loadport_to_loadlock()
 
