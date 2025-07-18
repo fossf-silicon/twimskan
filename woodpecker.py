@@ -42,7 +42,7 @@ class Theta3:
         Not sure what GRBL internal scale factor is set to but this looks reasonable
         """
         self.degrees_per_unit = -90
-
+        self.homed = False
 
     def home(self):
         """"
@@ -51,8 +51,14 @@ class Theta3:
         """
         self.woodpecker.grbl.gs.j("Y-5 F100")
         self.woodpecker.grbl.gs.j("Y-3.63 F100")
+        self.wait_idle()
+        self.homed = True
 
-    def move(self, r):
+    def home_lazy(self):
+        if not self.homed:
+            self.home()
+
+    def move(self, r, block=True):
         """
         r from -180 to 180
         CCW angles are, by Evezor convention, positive, but negative y values are CCW 
@@ -60,7 +66,11 @@ class Theta3:
         value = r / self.degrees_per_unit  + self.off_center
         print("setting %0.3f" % value)
         self.woodpecker.grbl.gs.j("Y%0.3f F100" % value)
+        if block:
+            self.wait_idle()
 
+    def wait_idle(self):
+        self.woodpecker.grbl.wait_idle()
 
 class LaserZ:
     def __init__(self, woodpecker):

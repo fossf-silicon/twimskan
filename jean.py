@@ -32,6 +32,9 @@ import datetime
 from woodpecker import Woodpecker
 import glob
 
+# ignore woodpecker moves to try arm w/o it
+STUB_WOODPECKER = 0
+
 def printt(format, *args, **kwargs):
     print(str(datetime.datetime.now().isoformat()) + ": " + format, *args, **kwargs)
 
@@ -167,7 +170,17 @@ class GrblWrap:
 
     def move(self, block=True, timeout=30.0, check=True, **kwargs):
         settle_timeout = 3.0
+
         moves = ", ".join(["%s=%s" % (k, v) for k, v in sorted(kwargs.items())])
+
+        woodpecker_pos = None
+        # hack
+        if 'r' in kwargs:
+            if not STUB_WOODPECKER:
+                assert self.ra.woodpecker
+                woodpecker_pos = kwargs['r']
+                self.ra.woodpecker.theta3.move(woodpecker_pos, block=block)
+            del kwargs['r']
         self.ra.command(f"grbl.move({moves})")
         if block:
             tstart = time.time()
@@ -184,6 +197,8 @@ class GrblWrap:
                 # should already be here if its going to happen
                 # XXX: in practice I need to add more wait here
                 check_position(self.ra, pos_want, pos_final, settle_timeout=1.2)
+            if woodpecker_pos is not None:
+                self.ra.woodpecker.theta3.wait_idle()
   
         else:
             assert 0, "everything should block right now"
@@ -191,8 +206,9 @@ class GrblWrap:
 
 
 class RobotArm:
-    def __init__(self, woodpecker=None):
-        self.serial = serial.Serial('/dev/ttyUSB0', 115200, timeout=0.01)
+    def __init__(self, woodpecker=None, port = '/dev/ttyUSB0'):
+        print("RobotArm: connecting to %s" % port)
+        self.serial = serial.Serial(port, 115200, timeout=0.01)
         self.ss = SerialSpawn(self.serial)
         self.grbl = GrblWrap(self)
         self.station = None
@@ -453,13 +469,17 @@ class RobotArm:
             print("Fine home t")
             ra.home_t(block=True)
 
-    def move_from_loadlock_to_loadport(self, f=None, check=True, drop_last=False):
-        grbl = self.grbl
+    def auto_f(self, f):
         if f is None:
             if self.wafer:
                 f = 500
             else:
                 f = 2000
+        return f
+
+    def move_from_loadlock_to_loadport(self, f=None, check=True, drop_last=False):
+        grbl = self.grbl
+        f = self.auto_f(f)
 
         # assume we are starting at the loadlock
         # no need to move there?
@@ -497,11 +517,7 @@ class RobotArm:
         """
 
     def move_from_loadport_to_loadlock(self, f=None, check=True, drop_last=False):
-        if f is None:
-            if self.wafer:
-                f = 500
-            else:
-                f = 2000
+        f = self.auto_f(f)
 
         # reverse of above moves
         grbl = self.grbl
@@ -649,6 +665,8 @@ class RobotArm:
 
     def home_at_loadport(self):
         self.safely_get_to_loadport(homing=True)
+        if self.woodpecker:
+            self.woodpecker.theta3.home_lazy()
 
     def pickup_wafer_loadport(self):
         assert 0, "FIXME"
@@ -814,8 +832,8 @@ def main():
 
     try:
         print("homing test")
-        #ra.force_user_move_to_loadport()
-        #ra.home_at_loadport()
+        ra.force_user_move_to_loadport()
+        ra.home_at_loadport()
         # ra.move_wafer_from_loadport_to_loadlock()
         print("")
         if 0:
