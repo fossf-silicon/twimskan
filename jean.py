@@ -214,12 +214,16 @@ class RobotArm:
         self.grbl = GrblWrap(self)
         self.station = None
         # Reduce feed rates when have wafer
-        self.has_wafer = False
+        # Default to true to be safer
+        self.has_wafer = True
 
         if woodpecker is None and len(glob.glob("/dev/ttyUSB*")) == 2:
             print("RobotArm: auto-connecting woodpecker")
             woodpecker = Woodpecker()
         self.woodpecker = woodpecker
+
+    def set_has_wafer(self, val):
+        self.has_wafer = val
 
     def command(self, s):
         verbose = False
@@ -475,7 +479,7 @@ class RobotArm:
 
     def auto_f(self, f):
         if f is None:
-            if self.wafer:
+            if self.has_wafer:
                 f = 500
             else:
                 f = 2000
@@ -497,6 +501,7 @@ class RobotArm:
         # self.grbl.move(t=24.434, p=122.498, f=f, check=check)
         # needs to be tucked in more or fork won't clear
         # self.grbl.move(t=16.941, p=135.549, r=-62, f=f, check=check)
+        print("move_loadport_final_approach()")
         self.grbl.move(t=20.215, p=133.616, r=-62, f=f, check=check)
 
     def get_loadport_final_approach_pos(self):
@@ -513,6 +518,7 @@ class RobotArm:
         z=20 below surface. not needed but safer for testing
         z=50 well cleared
         """
+        print("pickup_wafer_loadport()")
         # Set expected z height
         self.grbl.move(z=20)
         # move in
@@ -525,6 +531,7 @@ class RobotArm:
         """
         Arm already holding wafer
         """
+        print("place_wafer_loadport()")
         # Set expected z height
         self.grbl.move(z=50)
         # move in
@@ -540,6 +547,7 @@ class RobotArm:
         print("")
         print("")
         print("")
+        print("safely_get_to_loadport()")
         if homing:
             print("Rough position sync")
             ra.home_p(block=True)
@@ -550,26 +558,42 @@ class RobotArm:
         f = None
         # FIXME: proably need more navigation logic
         # Or maybe we just fail to home for now if its not in a very specific range?
-        if start['t'] > 0:
+        # microscope uses ~-17
+
+        """
+        Load port coordiantes
+            self.grbl.move(t=20.215, p=133.616, r=-62, f=f, check=check)
+        Microscope coordiantes
+            grbl.move(t=-17.732, p=104.722, z=20.1, r=0)
+            grbl.move(t=5.955, p=83.408, r=0)
+        Loadlock coordinates
+            self.grbl.move(t=-21.138, p=-128.760, r=fixme, f=f, check=check)
+            self.grbl.move(t=-34.827, p=-48.867)
+        """
+        # load port or microscope
+        if start['t'] > 0 and start['p'] > 0 or start['t'] < 0 and start['p'] > 0:
+            print("Starting by user load/unload port / microscope half")
             grbl.move(z=100, f=1000, check=not homing)
             # now the big move
             # grbl.move(t=24.434, p=134.055, f=f, check=not homing)
             # move to load port
             self.move_loadport_final_approach(f=f, check=not homing)
-
-            # phi folded over sharpy for tight space over there
-            assert start['p'] > 0
-            print("Starting by user load/unload port")
-        else:
-            print("Starting closer to TwimSkan load lock")
+        # load lock
+        elif start['t'] < 0 and start['p'] < 0:
+            print("Starting closer to TwimSkan load lock half")
             # corner is generally a safe move
-            grbl.move(z=100, f=1000)
+            grbl.move(z=100, f=1000, check=not homing)
             # Drop last as we'll (optionally) home before moving there
             self.move_from_loadlock_to_loadport(drop_last=True)
+        else:
+            assert 0, ("Can't identify starting position", start)
+
 
         print("Rough move complete")
         # finally to station idle positon
         if homing:
+            # WARNING: if you change this coordinate it has massive implications
+            # Everything is calibrated from this
             self.home_at_point({'t':20, 'p':130})
 
         print("Move to final position")
@@ -683,7 +707,7 @@ class RobotArm:
         print("")
 
     def pickup_wafer_loadlock(self):
-        grbl = self.ra.grbl
+        grbl = self.grbl
         # Just outside of it
         grbl.move(t=-21.138, p=-128.760, f=2000)
         # Get under wafer
@@ -701,8 +725,8 @@ class RobotArm:
         Arm already holding wafer
         Loadlock in position
         """
+        grbl = self.grbl
         grbl.move(z=80, f=1000)
-        grbl = self.ra.grbl
         # into wafer holder
         grbl.move(t=-32.651, p=-112.039, f=500)
         # Set wafer down
@@ -720,14 +744,22 @@ class RobotArm:
     *****************************************************************************
     """
 
-    def move_wafer_to_microscope(self):
-        grbl = self.ra.grbl
+
+
+    def enter_microscope(self):
+        grbl = self.grbl
         # Just before
+        grbl.move(z=80, r=0)
         grbl.move(t=-17.732, p=104.722, r=0)
+        grbl.move(z=20.1, r=0)
         # In
         grbl.move(t=5.955, p=83.408, r=0)
 
-        assert 0, "FIXME"
+    def exit_microscope(self):
+        grbl = self.grbl
+        grbl.move(t=-17.732, p=104.722, r=0)
+        grbl.move(z=80, r=0)
+
 
     """
     *****************************************************************************
@@ -878,6 +910,9 @@ def main():
         description="Robot arm test app")
     add_bool_arg(parser, "--verbose", default=False, help="Verbose output")
     add_bool_arg(parser, "--home", default=True, help="Home at startup")
+    add_bool_arg(parser, "--test-loadport", help="")
+    add_bool_arg(parser, "--test-loadlock", help="")
+    add_bool_arg(parser, "--test-microscope", help="")
     args = parser.parse_args()
 
     ra = RobotArm()
@@ -929,7 +964,8 @@ def main():
 
         # loadport test
         # Including homing takes: 1:17
-        if 1:
+        if args.test_loadport:
+            ra.set_has_wafer(False)
             print("Doing final approach")
             ra.move_loadport_final_approach()
             print("Picking up")
@@ -940,6 +976,19 @@ def main():
             time.sleep(5)
             ra.place_wafer_loadport()
             ra.move_loadport_final_approach()
+
+        # microscope test
+        if args.test_microscope:
+            ra.set_has_wafer(True)
+            # safe starting point
+            print("Going to loadport")
+            ra.safely_get_to_loadport()
+            print("Entering microscope")
+            ra.enter_microscope()
+            print("Exiting microscope")
+            ra.exit_microscope()
+            print("Going to loadport")
+            ra.safely_get_to_loadport()
 
     except Exception as e:
         print("WARNING: exception")
