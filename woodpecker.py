@@ -25,7 +25,7 @@ class RotaryTable:
         X=4 => 5 degrees CW
         180 / 5 * 4 = 144
         """
-        self.woodpecker.grbl.gs.j("X-144 F2000")
+        self.woodpecker.grbl.gs.j("X+144 F2000")
         self.woodpecker.grbl.wait_idle()
 
 class Theta3:
