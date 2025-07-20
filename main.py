@@ -131,6 +131,8 @@ class RobotCell:
         self.loadlock_wafer_a = False
         self.loadlock_wafer_b = True
 
+        self.arm.woodpecker.theta3.home()
+
         def wafer_b_at_loadport():
             self.wafer_b = "loadport"
         #def wafer_b_at_loadlock_b():
@@ -146,9 +148,15 @@ class RobotCell:
             elif self.wafer_b == "loadport":
                 print("Picking up wafer from loadport")
                 self.arm.safely_get_to_loadport()
-                # FIXME: hack for bug
-                self.arm.woodpecker.theta3.home_lazy()
+
+                if 1:
+                    # FIXME: hack for bug (?)
+                    self.arm.woodpecker.theta3.home()
+                    # homing cancelled this out
+                    self.arm.move_loadport_final_approach()
+    
                 self.arm.pickup_wafer_loadport()
+                self.arm.move_loadport_final_approach()
             else:
                 assert 0, "lost the wafer"
             wafer_b_at_arm()
@@ -176,34 +184,62 @@ class RobotCell:
                 print("")
                 print("")
                 print("")
+                print("")
+                print("")
+                print("")
                 mode = random.randint(0, 5)
-                mode = 2
+                # print("FIXME hack")
+                # mode = 2
                 print("next mode", mode)
                 # Spin rotary to A
                 if mode == 0:
+                    print("next: select_port_a_to_arm")
+                    #print("FIXME: missing cable")
                     self.woodpecker.rt.select_port_a_to_arm()
                 # Spin rotary to B
                 elif mode == 1:
+                    print("next: select_port_b_to_arm")
+                    #print("FIXME: missing cable")
                     self.woodpecker.rt.select_port_b_to_arm()
                 # Pick up the wafer
                 elif mode == 2:
+                    print("next: pick_up_wafer")
                     pick_up_wafer()
                 # Set down the wafer
                 elif mode == 3:
+                    print("next: place_wafer")
                     if self.wafer_b == "arm":
+                        print("We have a wafer")
                         self.arm.safely_get_to_loadport()
-                        # FIXME: hack for bug
-                        self.arm.woodpecker.theta3.home_lazy()
+                        if 1:
+                            # FIXME: hack for bug (?)
+                            self.arm.woodpecker.theta3.home()
+                            # homing cancelled this out
+                            self.arm.move_loadport_final_approach()
                         self.arm.place_wafer_loadport()
+                        self.arm.move_loadport_final_approach()
                         wafer_b_at_loadport()
+                    else:
+                        print("Don't have a wafer, skip")
                 # Toggle andon
                 elif mode == 4:
+                    print("next: andon")
                     random_andon()
                 # Microscope
                 elif mode == 5:
+                    print("next: to microscope")
                     if self.wafer_b == "arm":
+                        print("Found wafer, inserting")
                         self.arm.safely_get_to_microscope()
-                        self.arm.move_wafer_to_microscope()
+                        print("Enter microscope")
+                        self.arm.enter_microscope()
+                        time.sleep(5)
+                        print("Exiting microscope")
+                        self.arm.exit_microscope()
+                        print("Going to loadport")
+                        self.arm.safely_get_to_loadport()
+                    else:
+                        print("No wafer. Skip")
                 else:
                     assert 0
                 time.sleep(1)
