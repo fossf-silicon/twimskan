@@ -42,6 +42,9 @@ def printt(format, *args, **kwargs):
 class GrblTimeout(Exception):
     pass
 
+class EncoderFault(Exception):
+    pass
+
 def format_scara_pos(pos):
     if len(pos) == 0:
         return ""
@@ -207,7 +210,7 @@ class GrblWrap:
 
 
 class RobotArm:
-    def __init__(self, woodpecker=None, port = '/dev/ttyUSB0'):
+    def __init__(self, woodpecker=None, port = '/dev/ttyUSB0', check_encoder_fault=True):
         print("RobotArm: connecting to %s" % port)
         self.serial = serial.Serial(port, 115200, timeout=0.01)
         self.ss = SerialSpawn(self.serial)
@@ -221,6 +224,15 @@ class RobotArm:
             print("RobotArm: auto-connecting woodpecker")
             woodpecker = Woodpecker()
         self.woodpecker = woodpecker
+
+        if check_encoder_fault:
+            self.check_encoder_fault()
+
+    def check_encoder_fault(self):
+        pos = self.grbl_get_pos_scara()
+        if pos['t'] == 0 and pos['p'] == 0 and pos['z'] == 0:
+            raise EncoderFault("Encoders are reading all 0s. Manually reset encoder board to fix")
+
 
     def set_has_wafer(self, val):
         self.has_wafer = val
@@ -295,7 +307,7 @@ class RobotArm:
             # 0.6 sec is not enough, 0.7 min
             time.sleep(1.2)
             # takes a while if far down
-            self.wait_idle(timeout=60)
+            self.wait_idle(timeout=120)
 
     def grbl_disable_motors(self):
         """
