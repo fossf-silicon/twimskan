@@ -532,7 +532,7 @@ class RobotArm:
         Fork right in front of but not in the load port
         """
         print("move_loadport_final_approach()")
-        self.grbl.move(t=17.227, p=137.219, r=-64, f=f, check=check)
+        self.grbl.move(t=17.227, p=137.219, r=-58, f=f, check=check)
 
     def get_loadport_final_approach_pos(self):
         return {'t':17.227, 'p':137.219}
@@ -1044,6 +1044,7 @@ def main():
             ra.safely_get_to_microscope()
             print("Entering microscope")
             ra.enter_microscope()
+            time.sleep(3)
             print("Exiting microscope")
             ra.exit_microscope()
             print("Going to loadport")

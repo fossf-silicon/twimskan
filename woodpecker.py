@@ -35,7 +35,7 @@ class Theta3:
     def __init__(self, woodpecker):
         self.woodpecker = woodpecker
         self.off_home = -3
-        self.off_center = -1.37
+        self.off_center = -1.615
         """
         0.9 degree stepper
         360 / 0.9 => 400 steper per rev
@@ -48,14 +48,17 @@ class Theta3:
         """"
         (gently) crash r / phi3 to set its position
         1.37 from end
+        WARNING: do not home with wafer in chuck
+        It gets spring loaded and throws fork hard
+        If it doesn't make a nasty noise you probably have a loose screw
         """
         print("Theta3: homing")
         print("   Homing: crash CW  (positive axis value)")
-        self.woodpecker.grbl.gs.j("Y%f F45" % -self.off_home)
+        self.woodpecker.grbl.gs.j("Y%f F60" % -self.off_home)
         time.sleep(0.2)
         self.wait_idle()
         print("   Homing: crash CCW (negative axis value)")
-        self.woodpecker.grbl.gs.j("Y%f F45" % +self.off_home)
+        self.woodpecker.grbl.gs.j("Y%f F60" % +self.off_home)
         time.sleep(0.2)
         self.wait_idle()
         self.move(0)
