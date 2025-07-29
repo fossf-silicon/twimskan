@@ -111,32 +111,33 @@ def main():
         description="Woodpecker GRBL controller for rotary table, theta3, and laser Z")
     add_bool_arg(parser, "--verbose", default=False, help="Verbose output")
     parser.add_argument("--theta3", type=float, default=None)
-    add_bool_arg(parser, "--home", default=True, help="Home at startup")
+    add_bool_arg(parser, "--theta3-home", default=None, help="Home at startup")
+    add_bool_arg(parser, "--rotary-a", help="Rotary port A")
+    add_bool_arg(parser, "--rotary-b", help="Rotary port A")
     args = parser.parse_args()
 
     w = Woodpecker()
 
-    if 0:
+    if args.rotary_a:
         print("Selecting port A")
         w.rt.select_port_a_to_arm()
+    if args.rotary_b:
         print("Selecting port B")
         w.rt.select_port_b_to_arm()
-        print("Selecting port A")
-        w.rt.select_port_a_to_arm()
 
-    if 0:
+    # Might do rotary table
+    # Only home if specified or if moving to location and not specified
+    if args.theta3_home:
+        print("Homing (explicit)")
         w.theta3.home()
-        w.theta3.move(0)
-        w.theta3.move(90)
-        w.theta3.move(-90)
-
-    if args.home:
-        print("Homing")
-        w.theta3.home()
-
     if args.theta3 is not None:
+        if args.theta3_home is None:
+            print("Homing (by default)")
+            w.theta3.home()
+
         print("Moving", args.theta3)
         w.theta3.move(args.theta3)
+
 
 if __name__ == "__main__":
     main()

@@ -276,6 +276,27 @@ class RobotArm:
     # maybe instead of open loop
     # have a quick version for when difference should be small
 
+    def home(self, home_z=None):
+        print("Startup homing sequence")
+        self.force_user_move_to_loadport()
+
+        orig_pos_scara = self.grbl_get_pos_scara()
+        # t / p are a bit safe to do automatically 
+        if orig_pos_scara['z'] == 0.0 or home_z:
+            # assert 0, "z not homed (probably). Home before continuing"
+            print("Need to home Z")
+            print("Ensure is clear")
+            input("Press Enter to continue...")
+            print("Homing z...")
+            self.home_z(block=True)
+            print("Rough homing t...")
+            self.home_t(block=True)
+            print("Rough homing p...")
+            self.home_p(block=True)
+            print("Power up homing complete")
+            self.home_z(block=True)
+        self.home_at_loadport()
+
     def home_p(self, block=True, closed_loop=True):
         self.command("grbl.home('p')")
         if block:
@@ -510,14 +531,11 @@ class RobotArm:
         """
         Fork right in front of but not in the load port
         """
-        # self.grbl.move(t=24.434, p=122.498, f=f, check=check)
-        # needs to be tucked in more or fork won't clear
-        # self.grbl.move(t=16.941, p=135.549, r=-62, f=f, check=check)
         print("move_loadport_final_approach()")
-        self.grbl.move(t=20.215, p=133.616, r=-62, f=f, check=check)
+        self.grbl.move(t=17.227, p=137.219, r=-64, f=f, check=check)
 
     def get_loadport_final_approach_pos(self):
-        return {'t':20.215, 'p':133.616}
+        return {'t':17.227, 'p':137.219}
 
     def pickup_wafer_loadport(self):
         """
@@ -534,7 +552,7 @@ class RobotArm:
         # Set expected z height
         self.grbl.move(z=20)
         # move in
-        self.grbl.move(t=31.948, p=114.346)
+        self.grbl.move(t=28.630, p=118.081)
         # pick up
         self.grbl.move(z=50)
         self.has_wafer = True
@@ -547,7 +565,7 @@ class RobotArm:
         # Set expected z height
         self.grbl.move(z=50)
         # move in
-        self.grbl.move(t=31.948, p=114.346)
+        self.grbl.move(t=28.630, p=118.081)
         # Let go of it
         self.grbl.move(z=20)
         self.has_wafer = False
@@ -933,9 +951,17 @@ def main():
         description="Robot arm test app")
     add_bool_arg(parser, "--verbose", default=False, help="Verbose output")
     add_bool_arg(parser, "--home", default=True, help="Home at startup")
+    add_bool_arg(parser, "--home-z", default=None, help="Force homing Z if homing")
+    add_bool_arg(parser, "--teach-mode", help="")
     add_bool_arg(parser, "--test-loadport", help="")
     add_bool_arg(parser, "--test-loadlock", help="")
     add_bool_arg(parser, "--test-microscope", help="")
+    add_bool_arg(parser, "--move-loadport-final-approach-wafer", help="")
+    add_bool_arg(parser, "--pickup-wafer-loadport", help="You must do final approach first")
+    add_bool_arg(parser, "--place-wafer-loadport", help="You must do final approach first")
+    parser.add_argument("--t", type=float, default=None, help="")
+    parser.add_argument("--p", type=float, default=None, help="")
+    parser.add_argument("--z", type=float, default=None, help="")
     args = parser.parse_args()
 
     ra = RobotArm()
@@ -956,34 +982,44 @@ def main():
     ra.wait_idle(timeout=1)
 
     print("pos cart", ra.grbl_get_pos_cartesian())
-    pos_scara = ra.grbl_get_pos_scara()
-    print("pos scara", pos_scara)
-    # t / p are a bit safe to do automatically 
-    if pos_scara['z'] == 0.0:
-        # assert 0, "z not homed (probably). Home before continuing"
-        print("Need to home Z")
-        print("Ensure is clear")
-        input("Press Enter to continue...")
-        print("Homing z...")
-        ra.home_z(block=True)
-        print("Rough homing t...")
-        ra.home_t(block=True)
-        print("Rough homing p...")
-        ra.home_p(block=True)
-        print("Power up homing complete")
+    orig_pos_scara = ra.grbl_get_pos_scara()
+    print("pos scara", orig_pos_scara)
 
     try:
+        if args.teach_mode:
+            print("Entering teach mode")
+            ra.grbl_disable_motors()
+            while True:
+                printt(format_scara_pos(encoder2pos(ra.grbl_get_pos_scara())))
+                time.sleep(0.1)
+
         if args.home:
-            print("Startup homing sequence")
-            ra.force_user_move_to_loadport()
-            ra.home_at_loadport()
-        # ra.move_wafer_from_loadport_to_loadlock()
-        print("")
-        if 0:
-            ra.force_user_move_to_loadport()
-            ra.home_at_loadport()
-            ra.move_wafer_from_loadport_to_loadlock()
-            ra.move_wafer_from_loadlock_to_loadport()
+            ra.home(home_z=args.home_z)
+
+        if args.move_loadport_final_approach_wafer:
+            print("Doing final approach")
+            ra.move_loadport_final_approach()
+            print("Wafer height")
+            ra.grbl.move(z=20)
+
+        if args.pickup_wafer_loadport:
+            print("pickup_wafer_loadport()")
+            ra.pickup_wafer_loadport()
+
+        if args.place_wafer_loadport:
+            print("place_wafer_loadport()")
+            ra.place_wafer_loadport()
+
+
+        if args.t is not None and args.p is not None:
+            ra.grbl.move(t=args.t, p=args.p)
+        elif args.t is not None:
+            ra.grbl.move(t=args.t)
+        elif args.p is not None:
+            ra.grbl.move(p=args.p)
+        if args.z is not None:
+            ra.grbl.move(z=args.z)
+
 
         # loadport test
         # Including homing takes: 1:17

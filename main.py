@@ -275,6 +275,10 @@ class TaskThread(threading.Thread):
         self.task_thread.go.set()
 
     def run(self):
+        print("Task thread started")
+        if self.cell.arm:
+            print("Have arm. Starting homing sequence")
+            self.cell.arm.home()
         while self.running.is_set():
             try:
                 if self.go.is_set():
