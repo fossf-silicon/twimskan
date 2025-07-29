@@ -126,10 +126,13 @@ class RobotCell:
         """
 
         # self.woodpecker.rt.select_port_b_to_arm()
+        """
+        Expected starting state
+        """
         self.arm_wafer = False
         self.loadport_wafer = False
-        self.loadlock_wafer_a = False
-        self.loadlock_wafer_b = True
+        self.loadlock_wafer_a = True
+        self.loadlock_wafer_b = False
 
         self.arm.woodpecker.theta3.home()
 
@@ -149,7 +152,7 @@ class RobotCell:
                 print("Picking up wafer from loadport")
                 self.arm.safely_get_to_loadport()
 
-                if 1:
+                if 0:
                     # FIXME: hack for bug (?)
                     self.arm.woodpecker.theta3.home()
                     # homing cancelled this out
@@ -211,7 +214,7 @@ class RobotCell:
                     if self.wafer_b == "arm":
                         print("We have a wafer")
                         self.arm.safely_get_to_loadport()
-                        if 1:
+                        if 0:
                             # FIXME: hack for bug (?)
                             self.arm.woodpecker.theta3.home()
                             # homing cancelled this out
